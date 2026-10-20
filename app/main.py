@@ -40,6 +40,7 @@ from app.analyze_location import (
     analyze_location,
     compute_dynamic_sunset,
 )
+from app.candidate_discovery import haversine_m
 from app.best_days import DEFAULT_BEST_DAYS_COUNT, compute_best_days
 from app.candidate_catalog import load_candidate_catalog
 from app.environment_context import classify_candidate_environment, discover_environment_features_cached
@@ -468,11 +469,18 @@ def api_candidates(region: str = "beskydy", timezone: str = DEFAULT_TIMEZONE):
     cache_key = terrain_cache.compute_cache_key()
     when = datetime.now(ZoneInfo(timezone)).replace(hour=12, minute=0, second=0, microsecond=0)
     for c in dataset.get("candidates", []):
+        # Zpětná vazba - "Prozkoumat západ" teď vede na stránku místa
+        # (/sunset/{slug}/), ne na panorama na týhle stránce - slug se
+        # proto doplňuje VŽDY, když je kandidát v celostátním katalogu,
+        # NEZÁVISLE na tom, jestli se podaří dopočítat živé skóre níž
+        # (katalogový záznam/slug nepotřebuje cachovaný terén).
+        catalog_row = catalog_db.get_by_id(c["id"])
+        if catalog_row is not None:
+            c["slug"] = catalog_row.get("slug")
         try:
             if terrain_cache.get_status(c["id"], cache_key) != terrain_cache.STATUS_READY:
                 continue  # terén se (ještě) nepočítal/neodpovídá aktuálnímu enginu - zůstane terrain-only rating
             static = terrain_cache.get_static_terrain(c["id"], cache_key)
-            catalog_row = catalog_db.get_by_id(c["id"])
             if static is None or catalog_row is None:
                 continue
             live = _dynamic_result_from_cache(catalog_row, static, when, distance_km=0.0, tz_name=timezone, preferences=None)
@@ -492,6 +500,11 @@ def api_candidates(region: str = "beskydy", timezone: str = DEFAULT_TIMEZONE):
     # dnešní `sunset_score`), takže se podle něj filtruje bez ohledu na
     # dnešní počasí - slabé místo se nenavrátí ani v jasný den.
     dataset["candidates"] = [c for c in dataset.get("candidates", []) if c["rating"] >= MIN_DISPLAYED_TERRAIN_RATING]
+    # Zadání - "v okruhu 50 m víc viewpointů -> bereme ten lepší" (viz
+    # NEARBY_DUPLICATE_RADIUS_M) - seznam je už seřazený od nejlepšího
+    # terénního ratingu (scripts/build_candidate_dataset.py), takže se
+    # "lepší vyhrává" zachová beze změny pořadí.
+    dataset["candidates"] = _drop_nearby_duplicates(dataset["candidates"])
     dataset["candidate_count"] = len(dataset["candidates"])
     return dataset
 
@@ -697,6 +710,31 @@ MAX_TERRAIN_ANALYSIS_CANDIDATES = 15
 # "naprosto otevřený", ale pořád NAD "jen trochu vidět".
 MIN_DISPLAYED_TERRAIN_RATING = 60
 
+# Zpětná vazba (živé použití) - "když se v okruhu 50 metrů nachází víc
+# viewpointů, bereme ten lepší na doporučení" - OSM data občas mají víc
+# samostatných bodů (uzlů) prakticky pro STEJNÝ fyzický výhled (hrana
+# vrcholu zaznamenaná dvakrát, rozhledna i vyhlídka pár metrů od sebe
+# apod.) - appka by jinak nabízela oba jako "dvě různá místa", i když
+# jde fakticky o jedno. Tohle je JINÁ deduplikace než
+# `app/candidate_discovery.py::deduplicate()` (150 m, běží při stavbě
+# katalogu, PŘED jakýmkoliv skórováním, "první vyhrává" = náhodné podle
+# pořadí OSM dat) - tahle běží nad UŽ SEŘAZENÝM seznamem doporučení
+# (nejlepší skóre první), takže "první v rámci 50m shluku vyhrává"
+# skutečně znamená "nejlepší vyhrává", ne náhoda.
+NEARBY_DUPLICATE_RADIUS_M = 50.0
+
+
+def _drop_nearby_duplicates(ranked: list[dict]) -> list[dict]:
+    """`ranked` musí být už seřazené od nejlepšího (zadání výš) - funkce
+    jen postupně přijímá kandidáty, co nejsou blíž než
+    `NEARBY_DUPLICATE_RADIUS_M` k už přijatému (= lepšímu) kandidátovi."""
+    kept: list[dict] = []
+    for c in ranked:
+        if any(haversine_m(c["lat"], c["lon"], k["lat"], k["lon"]) < NEARBY_DUPLICATE_RADIUS_M for k in kept):
+            continue
+        kept.append(c)
+    return kept
+
 
 class FindSunsetRequest(BaseModel):
     lat: float
@@ -877,7 +915,8 @@ def api_find_sunset(req: FindSunsetRequest, request: Request):
         # musí platit i pro prázdný radius, ne jen pro neprázdný.
         return {
             "found_count": 0, "to_analyze_count": 0, "ready_count": 0, "enqueued_count": 0, "pending_count": 0,
-            "failed_count": 0, "previously_failed_count": 0, "below_quality_floor_count": 0, "fully_covered": True, "results": [],
+            "failed_count": 0, "previously_failed_count": 0, "below_quality_floor_count": 0, "nearby_duplicate_count": 0,
+            "fully_covered": True, "results": [],
             "other_candidates": [], "other_candidates_truncated": False,
             "other_candidates_remaining": 0, "other_candidates_next_offset": 0,
         }
@@ -1019,6 +1058,13 @@ def api_find_sunset(req: FindSunsetRequest, request: Request):
         return (-combined, r["distance_km"], r["name"])
 
     results.sort(key=_rank_key)
+    # Zadání - "v okruhu 50 m víc viewpointů -> bereme ten lepší na
+    # doporučení" (viz NEARBY_DUPLICATE_RADIUS_M výš). `results` je v
+    # tuhle chvíli už seřazené od nejlepšího, takže se tím zároveň
+    # zachová "lepší vyhrává".
+    nearby_duplicate_count = len(results)
+    results = _drop_nearby_duplicates(results)
+    nearby_duplicate_count -= len(results)
 
     # Milestone "Correct Coverage Semantics and Candidate Accounting" -
     # PŘESNÁ definice `fully_covered`: `results` (jen SKUTEČNĚ
@@ -1065,6 +1111,10 @@ def api_find_sunset(req: FindSunsetRequest, request: Request):
         # aby "0 results, ale ready_count > 0" nepůsobilo, jako by se
         # něco ztratilo/zaseklo (frontend to rozlišuje, viz static/app.js).
         "below_quality_floor_count": below_quality_floor_count,
+        # Zadání - kolik výsledků zmizelo, protože byly do 50 m od lepšího
+        # kandidáta (viz NEARBY_DUPLICATE_RADIUS_M výš) - stejný důvod
+        # odděleně počítat jako u below_quality_floor_count.
+        "nearby_duplicate_count": nearby_duplicate_count,
         "fully_covered": fully_covered,
         "results": results,
         # Milestone "Immediate Full Results" - KAŽDÝ nalezený kandidát

@@ -290,9 +290,15 @@
           <div class="stat" id="stat-hike-row" hidden><span class="icon icon-hike" aria-hidden="true"></span><span id="stat-hike">—</span></div>
         </div>
         <div class="cta-row">
+          <!-- Zpětná vazba (živé použití) - "dvě možnosti: mapa a
+          prozkoumat západ" - "Prozkoumat západ" teď vede rovnou na
+          stránku místa (/sunset/{slug}/, panorama + předpověď + Best
+          Days + terén na jednom místě), ne jen na panorama na týhle
+          stránce (viz static/app.js). Dřív tu byl ještě třetí,
+          podmíněně skrytý odkaz "Otevřít stránku místa" se stejným
+          cílem - zbytečná duplicita, odstraněno. -->
           <button type="button" id="explore-panorama-btn" class="btn-primary">Prozkoumat západ</button>
           <button type="button" id="show-on-map-btn" class="btn-secondary">Zobrazit na mapě</button>
-          <a id="open-place-page-btn" class="btn-secondary" href="#" hidden>Otevřít stránku místa →</a>
         </div>
       </div>
     </div>

@@ -952,6 +952,23 @@ def test_candidates_endpoint_attaches_live_sunset_score_when_terrain_cached(fake
     assert live["sunset_score"] is not None  # NOVĚ doplněno
     assert live["sunset_score_label"]
     assert "color_potential" in live
+    assert live["slug"] == "cached-peak"  # zpětná vazba - "Prozkoumat západ" potřebuje slug i na výchozí Beskydy pohled
+
+
+def test_candidates_endpoint_attaches_slug_even_when_terrain_not_yet_cached(fake_candidates_dataset, monkeypatch):
+    # Slug je katalogový fakt (nezávisí na terrain_cache) - musí se
+    # doplnit, i když terén ještě není hotový/nespouští se živé skóre.
+    catalog_row = {
+        "id": "not-cached", "slug": "uncached-peak", "name": "Uncached Peak", "display_name": "Uncached Peak",
+        "candidate_type": "peak", "lat": 50.1, "lon": 14.1, "elevation_m": 800.0,
+        "near_water": False, "near_forest": False, "near_city": False,
+    }
+    monkeypatch.setattr(main_module.catalog_db, "get_by_id", lambda cid, db_path=None: catalog_row if cid == "not-cached" else None)
+    r = client.get("/api/candidates?region=testregion")
+    data = r.json()
+    by_id = {c["id"]: c for c in data["candidates"]}
+    assert by_id["not-cached"]["slug"] == "uncached-peak"
+    assert "sunset_score" not in by_id["not-cached"]  # terén pořád necachovaný, jen slug se doplnil
 
 
 def test_candidates_endpoint_falls_back_to_terrain_rating_when_terrain_not_cached(fake_candidates_dataset, fake_cache):
@@ -1580,6 +1597,58 @@ def test_find_sunset_all_candidates_below_floor_gives_empty_results_not_error(fa
     assert data["ready_count"] == 2
     assert data["below_quality_floor_count"] == 2
     assert data["results"] == []
+
+
+# --- Zpětná vazba (živé použití) - "v okruhu 50 m víc viewpointů ->
+# bereme ten lepší na doporučení" ---
+
+
+def test_find_sunset_keeps_only_better_candidate_within_50m(fake_cache, fake_worker, monkeypatch):
+    # ~0.0003° zeměpisné šířky ≈ 33 m - dost blízko na to, aby to byly
+    # "dva uzly pro fakticky stejný výhled".
+    catalog = [
+        {"id": "worse", "slug": "worse", "name": "Worse Node", "display_name": "Worse Node", "name_source": "osm",
+         "lat": 50.0, "lon": 14.0, "candidate_type": "peak", "elevation_m": 900.0, "region": None,
+         "near_water": None, "near_forest": None, "near_city": None, "source": "openstreetmap", "metadata": {}},
+        {"id": "better", "slug": "better", "name": "Better Node", "display_name": "Better Node", "name_source": "osm",
+         "lat": 50.0003, "lon": 14.0, "candidate_type": "peak", "elevation_m": 905.0, "region": None,
+         "near_water": None, "near_forest": None, "near_city": None, "source": "openstreetmap", "metadata": {}},
+    ]
+    monkeypatch.setattr(main_module, "load_candidate_catalog", lambda: catalog)
+    monkeypatch.setattr(main_module.catalog_db, "radius_search", _fake_radius_search_over(catalog))
+    monkeypatch.setattr(main_module.catalog_db, "count", lambda db_path=None: len(catalog))
+
+    cache_state, static_by_id = fake_cache
+    cache_state["worse"] = "ready"
+    static_by_id["worse"] = _fake_static_terrain(50.0, 14.0, elevation_m=900.0)
+    cache_state["better"] = "ready"
+    static_by_id["better"] = _fake_static_terrain(50.0003, 14.0, elevation_m=905.0)
+
+    r = client.post("/api/find_sunset", json={"lat": 50.0, "lon": 14.0, "radius_km": 10})
+    data = r.json()
+    assert data["ready_count"] == 2
+    # Terén je identický (stejný plochý fixture) u obou, takže "lepší"
+    # tady rozhoduje _rank_key (sunset_score, pak vzdálenost) - test
+    # hlavně ověřuje, že se ukáže jen JEDEN z dvojice, ne oba.
+    result_ids = [r["id"] for r in data["results"]]
+    assert len(result_ids) == 1
+    assert result_ids[0] in ("worse", "better")
+    assert data["nearby_duplicate_count"] == 1
+
+
+def test_find_sunset_candidates_30km_apart_are_not_deduplicated(fake_catalog, fake_cache, fake_worker):
+    # "mid" je ~5.5 km od "near" (viz fake_catalog) - rozhodně ne 50 m,
+    # oba musí zůstat v results.
+    cache_state, static_by_id = fake_cache
+    cache_state["near"] = "ready"
+    static_by_id["near"] = _fake_static_terrain(50.0, 14.0, elevation_m=950.0)
+    cache_state["mid"] = "ready"
+    static_by_id["mid"] = _fake_static_terrain(50.05, 14.0, elevation_m=700.0)
+
+    r = client.post("/api/find_sunset", json={"lat": 50.0, "lon": 14.0, "radius_km": 10})
+    data = r.json()
+    assert data["nearby_duplicate_count"] == 0
+    assert sorted(r["id"] for r in data["results"]) == ["mid", "near"]
 
 
 def test_find_sunset_running_candidate_is_pending_not_reenqueued(fake_catalog, fake_cache, fake_worker):

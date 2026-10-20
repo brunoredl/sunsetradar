@@ -205,19 +205,15 @@ dateInput.addEventListener("change", () => runAnalysis(currentLat, currentLon));
 tzInput.addEventListener("change", () => runAnalysis(currentLat, currentLon));
 
 // `slug` (milestone "Complete Product Build", pokračování) - jen
-// výsledky z /api/find_sunset skutečně znají candidate slug (výchozí
-// TEST_LOCATIONS/manuální klik na mapu ne) - "Open place page" tlačítko
-// se proto zobrazí jen tehdy, když ho máme opravdu ke komu odkázat.
+// kandidáti, co jsou ve celostátním katalogu, slug skutečně mají
+// (výchozí Beskydy dataset ho teď taky nese, viz app/main.py
+// /api/candidates; ručně zadané souřadnice/"Analyze coordinates" ne -
+// pro ně žádná stránka místa neexistuje). "Prozkoumat západ" tlačítko
+// (zpětná vazba - "dvě možnosti: mapa a prozkoumat západ, ten druhý ať
+// vede na stránku toho západu, ne na panorama tady") na slug vedené
+// navigaci používá, s fallbackem na starou on-page panoramu, pokud
+// slug nemáme.
 let currentBestSlug = null;
-function updateOpenPlacePageBtn() {
-  const btn = document.getElementById("open-place-page-btn");
-  if (currentBestSlug) {
-    btn.href = `/sunset/${currentBestSlug}/`;
-    btn.hidden = false;
-  } else {
-    btn.hidden = true;
-  }
-}
 
 function selectLocation(lat, lon, { flyTo, resetDropdown, slug = null }) {
   currentLat = lat;
@@ -225,7 +221,6 @@ function selectLocation(lat, lon, { flyTo, resetDropdown, slug = null }) {
   latInput.value = lat;
   lonInput.value = lon;
   currentBestSlug = slug;
-  updateOpenPlacePageBtn();
   if (resetDropdown) testLocationSelect.value = "";
   if (marker) marker.setLngLat([lon, lat]);
   if (flyTo) map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 13) });
@@ -237,6 +232,12 @@ document.getElementById("show-on-map-btn").addEventListener("click", () => {
   map.flyTo({ center: [currentLon, currentLat], zoom: Math.max(map.getZoom(), 13) });
 });
 document.getElementById("explore-panorama-btn").addEventListener("click", () => {
+  if (currentBestSlug) {
+    window.location.href = `/sunset/${currentBestSlug}/`;
+    return;
+  }
+  // Fallback - bod bez slugu (ruční souřadnice) nemá vlastní stránku
+  // místa, appka proto nabídne aspoň on-page panoramu jako dřív.
   document.getElementById("panorama-section").scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
@@ -2193,6 +2194,7 @@ async function initApp() {
     // objevenými/analyzovanými kandidáty (viz PLAN.md Fáze 8).
     currentLat = best.lat;
     currentLon = best.lon;
+    currentBestSlug = best.slug || null;
     latInput.value = best.lat;
     lonInput.value = best.lon;
     map.setCenter([best.lon, best.lat]);
