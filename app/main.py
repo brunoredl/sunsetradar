@@ -698,6 +698,53 @@ def api_search(lat: float, lon: float, radius_km: float = 25.0, candidate_type: 
 # (app/terrain_worker.py) a vrátí, co je SKUTEČNĚ hotové HNED.
 MAX_TERRAIN_ANALYSIS_CANDIDATES = 15
 
+# Zpětná vazba (živé použití, Brno/Špilberk) - appka dřív brala VŽDY
+# nejbližších `MAX_TERRAIN_ANALYSIS_CANDIDATES` bodů (zadání bod J -
+# "nejbližší se zpracují dřív, žádná preference typu"), takže hustý
+# shluk blízkých bodů kolem jednoho kopce (např. 5 OSM uzlů kolem
+# Špilberku) mohl vyčerpat VĚTŠINU analytických slotů jen na "jedno
+# místo" - vzdálenější, třeba zajímavější kandidáti se vůbec
+# nedostali k analýze. Rozdělí okruh na `DISTANCE_BAND_COUNT` stejně
+# širokých vzdálenostních pásem a z každého vezme přiměřený podíl
+# stropu (nejbližší uvnitř pásma) - "nejbližší se zpracují dřív"
+# zůstává platné UVNITŘ pásma, jen se víc neuplatní NAPŘÍČ celým
+# okruhem. Nevyužité sloty (pásmo nemá dost kandidátů) se doplní
+# dalšími nejbližšími napříč zbytkem, aby se strop využil celý, pokud
+# to jde - žádná kapacita se nezahazuje zbytečně.
+DISTANCE_BAND_COUNT = 5
+
+
+def _diversify_by_distance_band(in_radius: list[dict], cap: int, radius_km: float) -> list[dict]:
+    if len(in_radius) <= cap:
+        return in_radius
+    band_width_km = max(radius_km / DISTANCE_BAND_COUNT, 0.001)
+    bands: list[list[dict]] = [[] for _ in range(DISTANCE_BAND_COUNT)]
+    for c in in_radius:  # `in_radius` je už seřazené podle vzdálenosti vzestupně
+        band_idx = min(int(c["distance_km"] / band_width_km), DISTANCE_BAND_COUNT - 1)
+        bands[band_idx].append(c)
+    per_band_cap = max(1, cap // DISTANCE_BAND_COUNT)
+
+    selected: list[dict] = []
+    selected_ids: set[str] = set()
+    for band in bands:
+        if len(selected) >= cap:
+            break
+        for c in band[:per_band_cap]:
+            if len(selected) >= cap:
+                break
+            selected.append(c)
+            selected_ids.add(c["id"])
+    if len(selected) < cap:
+        for c in in_radius:
+            if len(selected) >= cap:
+                break
+            if c["id"] not in selected_ids:
+                selected.append(c)
+                selected_ids.add(c["id"])
+    selected.sort(key=lambda c: c["distance_km"])
+    return selected
+
+
 # Zpětná vazba (živé použití) - "proč bysme se měli zaobírat tím, kde ten
 # západ jde vidět jen trošku, když vedle je o dost lepší" - místa s
 # OTEVŘENĚ ŠPATNÝM terénem (zakrytý horizont bez ohledu na počasí, viz
@@ -922,9 +969,12 @@ def api_find_sunset(req: FindSunsetRequest, request: Request):
         }
 
     # `radius_search()` už vrací řazené podle vzdálenosti vzestupně
-    # (zadání bod 9/J beze změny - ŽÁDNÁ subjektivní preference typu,
-    # jen "nejbližší se zpracují dřív").
-    to_check = in_radius[:MAX_TERRAIN_ANALYSIS_CANDIDATES]
+    # (zadání bod 9/J beze změny - ŽÁDNÁ subjektivní preference typu).
+    # Zpětná vazba (Brno/Špilberk) - "nejbližší se zpracují dřív" teď
+    # platí v rámci vzdálenostních pásem (`_diversify_by_distance_band()`
+    # výš), ne jako čistý prefix celého okruhu - hustý shluk blízkých
+    # bodů tak nevyčerpá celý strop na jedno místo.
+    to_check = _diversify_by_distance_band(in_radius, MAX_TERRAIN_ANALYSIS_CANDIDATES, radius_km)
 
     cache_key = terrain_cache.compute_cache_key()
     when = datetime.now(ZoneInfo(req.timezone)).replace(hour=12, minute=0, second=0, microsecond=0)
@@ -1035,7 +1085,13 @@ def api_find_sunset(req: FindSunsetRequest, request: Request):
     # dostránkuje zbytek, pokud ho nešlo vrátit celý najednou
     # (`MAX_SEARCH_RESULTS` strop na velikost odpovědi, zadání bod "musí
     # existovat možnost zobrazit další").
-    beyond_cap = in_radius[len(to_check):]
+    #
+    # `to_check` teď NENÍ prostý prefix `in_radius` (viz
+    # `_diversify_by_distance_band()` výš) - "zbytek nad stropem" se
+    # proto musí dopočítat jako skutečný množinový rozdíl podle ID, ne
+    # jen odseknutím prvních `len(to_check)` položek.
+    to_check_ids = {c["id"] for c in to_check}
+    beyond_cap = [c for c in in_radius if c["id"] not in to_check_ids]
     offset = min(req.other_candidates_offset, len(beyond_cap))
     other_candidates_truncated = False
     not_analyzed_added = 0

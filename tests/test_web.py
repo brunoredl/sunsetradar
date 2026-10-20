@@ -1962,15 +1962,62 @@ def many_candidates(monkeypatch):
     return catalog
 
 
+def _expected_to_check_ids(catalog, radius_km=10.0):
+    """Zpětná vazba (Brno/Špilberk) - `to_check` už není prostý prefix
+    `in_radius` (viz `_diversify_by_distance_band()`), takže testy
+    nesmí hardcodovat "node/0..14" - spočítají si stejnou funkcí reálně
+    očekávanou množinu, stejně jako to dělá produkční kód."""
+    in_radius = [{**c, "distance_km": round(haversine_m(50.0, 14.0, c["lat"], c["lon"]) / 1000.0, 2)} for c in catalog]
+    in_radius.sort(key=lambda c: c["distance_km"])
+    to_check = main_module._diversify_by_distance_band(in_radius, main_module.MAX_TERRAIN_ANALYSIS_CANDIDATES, radius_km)
+    return {c["id"] for c in to_check}
+
+
+# --- Zpětná vazba (živé použití, Brno/Špilberk) - "dejme tomu okruh
+# 5 km, tak se ukáže víc z dálky, pestřejší" - `_diversify_by_distance_band()` ---
+
+
+def test_diversify_by_distance_band_spreads_across_whole_radius_not_just_closest():
+    # 64 kandidátů namačkaných do prvních ~7 km desetikilometrového
+    # okruhu (přesně "Brno" scénář) - prostý prefix (staré chování) by
+    # vzal jen node/0..14 (0-1.7 km). Nové chování musí sáhnout i na
+    # vzdálenější pásma.
+    catalog = [{"id": f"node/{i}", "distance_km": round(i * 0.111, 2)} for i in range(64)]
+    selected = main_module._diversify_by_distance_band(catalog, 15, 10.0)
+    distances = [c["distance_km"] for c in selected]
+    assert len(selected) == 15
+    assert len(set(c["id"] for c in selected)) == 15  # žádné duplicity
+    assert max(distances) > 5.0  # sáhlo i hluboko do druhé poloviny okruhu
+    assert min(distances) == 0.0  # nejbližší pořád zůstává zahrnutý
+
+
+def test_diversify_by_distance_band_returns_everything_when_under_cap():
+    catalog = [{"id": f"node/{i}", "distance_km": float(i)} for i in range(5)]
+    selected = main_module._diversify_by_distance_band(catalog, 15, 10.0)
+    assert len(selected) == 5
+
+
+def test_diversify_by_distance_band_handles_candidates_only_in_one_band():
+    # Všichni kandidáti spadají do JEDNOHO pásma (velmi malý okruh
+    # relativně k rozptylu bodů) - nesmí to spadnout, jen vrátí
+    # nejbližších `cap`.
+    catalog = [{"id": f"node/{i}", "distance_km": round(i * 0.01, 2)} for i in range(30)]
+    selected = main_module._diversify_by_distance_band(catalog, 15, 10.0)
+    assert len(selected) == 15
+    assert [c["id"] for c in selected] == [f"node/{i}" for i in range(15)]
+
+
 def test_find_sunset_64_candidates_only_one_ready_others_visible_as_waiting(many_candidates, fake_cache, fake_worker):
     # Přesná reprodukce nahlášeného chování: 64 nalezeno, strop 15, ale
     # jen 1 skutečně "ready" (worker se k ostatním ještě nedostal).
+    to_check_ids = sorted(_expected_to_check_ids(many_candidates))
     cache_state, static_by_id = fake_cache
-    cache_state["node/0"] = "ready"
-    static_by_id["node/0"] = _fake_static_terrain(50.0, 14.0)
-    for i in range(1, 15):
-        cache_state[f"node/{i}"] = "running"  # worker na nich právě pracuje (concurrency=1)
-    # "node/15".."node/63" zůstávají "missing" (výchozí) - nad stropem analýzy
+    cache_state[to_check_ids[0]] = "ready"
+    first = next(c for c in many_candidates if c["id"] == to_check_ids[0])
+    static_by_id[to_check_ids[0]] = _fake_static_terrain(first["lat"], first["lon"])
+    for cid in to_check_ids[1:]:
+        cache_state[cid] = "running"  # worker na nich právě pracuje (concurrency=1)
+    # zbytek (mimo `to_check_ids`) zůstává "missing" (výchozí) - nad stropem analýzy
 
     r = client.post("/api/find_sunset", json={"lat": 50.0, "lon": 14.0, "radius_km": 10})
     data = r.json()
@@ -1984,49 +2031,52 @@ def test_find_sunset_64_candidates_only_one_ready_others_visible_as_waiting(many
     # `other_candidates` s pravdivým stavem, ne tiše zahozeni.
     assert len(data["other_candidates"]) == 63
     other_by_id = {c["id"]: c["status"] for c in data["other_candidates"]}
-    assert all(other_by_id[f"node/{i}"] == "evaluating" for i in range(1, 15))  # running v to_check
-    assert all(other_by_id[f"node/{i}"] == "not_analyzed" for i in range(15, 64))  # nad stropem
+    assert all(other_by_id[cid] == "evaluating" for cid in to_check_ids[1:])  # running v to_check
+    assert all(other_by_id[c["id"]] == "not_analyzed" for c in many_candidates if c["id"] not in to_check_ids)  # nad stropem
     assert data["fully_covered"] is False
 
     # Kandidáti nad stropem se NEZAŘADILI do workeru - strop zůstal
     # zachovaný, žádná zvýšená DEM zátěž.
-    assert all(f"node/{i}" not in fake_worker.enqueued_calls for i in range(15, 64))
+    assert all(c["id"] not in fake_worker.enqueued_calls for c in many_candidates if c["id"] not in to_check_ids)
     # Ani žádný ze "running" (už se zpracovává jinde) se znovu nezařadil.
-    assert all(f"node/{i}" not in fake_worker.enqueued_calls for i in range(1, 15))
+    assert all(cid not in fake_worker.enqueued_calls for cid in to_check_ids[1:])
 
 
 def test_find_sunset_other_candidates_update_as_jobs_progress(many_candidates, fake_cache, fake_worker):
     # "Některé úlohy se dokončí, jiné zůstanou čekající, některé selžou" -
     # druhé volání (stejná query, jako by frontend obnovil výsledky) musí
     # ukázat AKTUALIZOVANÝ stav, ne zamrzlý snímek z prvního požadavku.
+    to_check_ids = sorted(_expected_to_check_ids(many_candidates))
     cache_state, static_by_id = fake_cache
-    for i in range(15):
-        cache_state[f"node/{i}"] = "running"
+    for cid in to_check_ids:
+        cache_state[cid] = "running"
 
     r1 = client.post("/api/find_sunset", json={"lat": 50.0, "lon": 14.0, "radius_km": 10})
     data1 = r1.json()
     assert data1["ready_count"] == 0
-    assert all(c["status"] == "evaluating" for c in data1["other_candidates"] if int(c["id"].split("/")[1]) < 15)
+    assert all(c["status"] == "evaluating" for c in data1["other_candidates"] if c["id"] in to_check_ids)
 
     # Mezitím worker dokončí pár kandidátů (2 ready, 1 trvale selhal),
     # zbytek doběhne (running).
-    cache_state["node/0"] = "ready"
-    static_by_id["node/0"] = _fake_static_terrain(50.0, 14.0)
-    cache_state["node/1"] = "ready"
-    static_by_id["node/1"] = _fake_static_terrain(50.001, 14.0)
-    cache_state["node/2"] = "failed"
+    first_c = next(c for c in many_candidates if c["id"] == to_check_ids[0])
+    second_c = next(c for c in many_candidates if c["id"] == to_check_ids[1])
+    cache_state[to_check_ids[0]] = "ready"
+    static_by_id[to_check_ids[0]] = _fake_static_terrain(first_c["lat"], first_c["lon"])
+    cache_state[to_check_ids[1]] = "ready"
+    static_by_id[to_check_ids[1]] = _fake_static_terrain(second_c["lat"], second_c["lon"])
+    cache_state[to_check_ids[2]] = "failed"
 
     r2 = client.post("/api/find_sunset", json={"lat": 50.0, "lon": 14.0, "radius_km": 10})
     data2 = r2.json()
     assert data2["ready_count"] == 2
-    assert {c["id"] for c in data2["results"]} == {"node/0", "node/1"}
+    assert {c["id"] for c in data2["results"]} == {to_check_ids[0], to_check_ids[1]}
     other2 = {c["id"]: c["status"] for c in data2["other_candidates"]}
     # Milestone "Immediate Full Results" - "failed" status se teď ukazuje
     # výslovně (dřív splynul s obecným "pending") - retry proběhl
     # automaticky beze změny chování, jen je teď viditelný důvod.
-    assert other2["node/2"] == "failed"
+    assert other2[to_check_ids[2]] == "failed"
     assert data2["previously_failed_count"] == 1
-    assert all(other2[f"node/{i}"] == "evaluating" for i in range(3, 15))
+    assert all(other2[cid] == "evaluating" for cid in to_check_ids[3:])
 
 
 def test_find_sunset_other_candidates_shows_failed_dynamic_computation(many_candidates, fake_cache, fake_worker, monkeypatch):
@@ -2052,10 +2102,11 @@ def test_find_sunset_other_candidates_shows_failed_dynamic_computation(many_cand
 def test_find_sunset_other_candidates_not_enqueued_beyond_cap(many_candidates, fake_cache, fake_worker):
     # Nad-stropoví kandidáti se nesmí objevit ve `worker.enqueued_calls`
     # - žádná nová DEM zátěž jen proto, že teď jsou vidět v odpovědi.
+    to_check_ids = sorted(_expected_to_check_ids(many_candidates))
     r = client.post("/api/find_sunset", json={"lat": 50.0, "lon": 14.0, "radius_km": 10})
     data = r.json()
     assert len(fake_worker.enqueued_calls) == data["enqueued_count"] == 15  # jen `to_check`, ne všech 64
-    assert sorted(fake_worker.enqueued_calls) == sorted(f"node/{i}" for i in range(15))
+    assert sorted(fake_worker.enqueued_calls) == to_check_ids
 
 
 def test_find_sunset_other_candidates_empty_radius(fake_catalog, fake_cache, fake_worker):
