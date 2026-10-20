@@ -484,3 +484,133 @@ candidate datasetů (viz výše), ne živou terrain analýzou stovek bodů.
 - Na mapě se zobrazí čistě vizuální kruh hledané oblasti (klientský
   GeoJSON polygon, žádný network request navíc) - posun slideru radiusu
   kruh jen překreslí, nespouští žádnou analýzu.
+
+## Bezplatné testovací nasazení (Render Free)
+
+Appka je připravená na nasazení na [Render](https://render.com) (Free
+plán) jako jednoduchá veřejná testovací verze - bez registrace pro
+testery, bez API klíčů/účtů (ČÚZK, Copernicus, Open-Meteo, Nominatim i
+Overpass jsou všechny zdarma a bez klíče), bez placených aktivací.
+
+### Co appka potřebuje na disku a co ne
+
+Render Free má **dočasný souborový systém** - při každém restartu/novém
+nasazení se disk resetuje na to, co je v Git repozitáři. `data/` je proto
+rozdělené na dvě kategorie (viz `.gitignore`):
+
+**Verzované (malá, nenahraditelná při startu)**:
+- `data/national_catalog.sqlite3` - celostátní katalog kandidátů
+- `data/candidate_catalog.json` - starší katalog (fallback zdroj pro
+  `/sunset/{slug}/`, viz `app/candidate_catalog.py`)
+- `data/candidates_beskydy.json` / `_krkonose.json` / `_vsetinsko.json` -
+  předpočítané Best Sunset datasety (`/api/candidates`)
+- `data/terrain_cache.sqlite3` - precomputed terén pro katalogové
+  kandidáty, aby se po KAŽDÉM restartu/deploy nemusel znovu počítat
+  (DEM výpočet je CPU-náročný, ~11-32 s/bod za studena)
+- `data/overpass_cache/grid_*_environment.json` - celostátní cache
+  water/forest/city signálu, kterou živě čte `/api/analyze` pro
+  LIBOVOLNÝ bod na mapě - chrání Overpass API před opakovanými živými
+  dotazy z veřejného provozu
+
+**NEverzované (regenerovatelná cache, řádově gigabajty, bez pevné horní
+meze)**:
+- `data/cuzk_cache/`, `data/dem_cache/` - syrové DEM dlaždice. Appka si
+  je stáhne znovu při prvním dotazu na danou oblast (živě z ČÚZK/
+  Copernicus, viz `app/dem_strategy.py`) - funguje i s prázdným
+  adresářem, jen první dotaz na NOVÉ místo je pomalejší.
+- `data/weather_cache.sqlite3` - TTL cache počasí, bezúčelná verzovat.
+
+**Výsledek**: po každém restartu/nasazení appka OKAMŽITĚ odpovídá rychle
+na vše, co je v katalogu/testovacích lokalitách (Beskydy, Krkonoše,
+Vsetínsko + `TEST_LOCATIONS`) - katalog se NEMUSÍ znovu sestavovat ani
+terén hromadně přepočítávat. Jen úplně nové body (klik na mapu mimo
+dosud analyzovaná místa) spustí živý DEM výpočet, stejně jako při prvním
+spuštění na tvém počítači.
+
+### Jak appka běží
+
+- Žádné `.env`/tajné klíče - appka žádné nepotřebuje (ověřeno auditem:
+  nikde v `app/` se nečte `os.environ`/`os.getenv`, kromě `$PORT`, který
+  appce dává přímo hosting přes spouštěcí příkaz, ne appka sama).
+- Port: spouštěcí příkaz čte `$PORT` od Renderu (appka sama žádný port
+  natvrdo nezná): `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
+- `GET /healthz` - jednoduchý health-check endpoint (nedotazuje
+  katalog/terén/DEM, jen potvrdí, že proces žije).
+- Cesty ke `static/`/`templates/` jsou teď ABSOLUTNÍ (odvozené od
+  `__file__`), ne závislé na aktuálním pracovním adresáři spouštěcího
+  prostředí.
+- Per-IP rate limiting (in-process, bez nové závislosti) na třech
+  nejdražších/externě závislých endpointech - `/api/analyze`,
+  `/api/find_sunset` (oba 20 požadavků/min/IP), `/api/geocode` (15/min/IP,
+  chrání Nominatim) - veřejný provoz tak nemůže appku ani externí API
+  neomezeně zahltit. Limit je per proces (resetuje se při restartu) -
+  pro měřítko "pár testerů" dostatečné, ne enterprise rate limiting.
+- `render.yaml` (Blueprint) definuje jednu bezplatnou web service,
+  včetně `PYTHON_VERSION=3.12.7` (bezpečná, dobře podporovaná verze s
+  hotovými `manylinux` wheely pro `rasterio`/`numpy`/`pyproj` - appka na
+  tvém počítači běží na jiné verzi Pythonu, to zůstává beze změny).
+
+### Postup nasazení (kroky, které musíš udělat ty)
+
+1. **GitHub**: vytvoř nový prázdný repozitář (veřejný nebo soukromý -
+   oboje funguje s Render Free) a napoj ho na už existující lokální Git
+   historii:
+   ```bash
+   git remote add origin <URL tvého GitHub repozitáře>
+   git push -u origin main
+   ```
+2. **Render**: na [render.com](https://render.com) zvol **New → Blueprint**,
+   vyber svůj GitHub repozitář. Render najde `render.yaml` automaticky a
+   navrhne přesně jednu bezplatnou web service - stačí potvrdit (žádné
+   platební údaje nejsou pro Free plán potřeba).
+3. První build stáhne závislosti (`pip install -r requirements.txt`) a
+   appku spustí - sleduj Render log, jestli build i start proběhly bez
+   chyby, a otevři přidělenou `https://*.onrender.com` adresu.
+4. **Smoke test po nasazení** (ověř ručně, ideálně i po pár dnech
+   nečinnosti, kdy Render Free appku "uspí"):
+   - `/healthz` vrací `{"status":"ok"}`
+   - hlavní stránka ukazuje reálný "Best Sunset" z Beskyd (ne chybu)
+   - klik na existující místo v "Other sunsets"/Explore je rychlý
+     (cache hit)
+   - klik na zcela nové místo na mapě doběhne (pomaleji, živý DEM fetch)
+
+### Doporučený workflow pro průběžné aktualizace
+
+1. Vyvíjej a testuj lokálně jako dosud (`uvicorn app.main:app --reload`,
+   `pytest -m "not integration"`).
+2. Commitni a pushni do `main` na GitHubu až po té, co lokální testy
+   prochází a appku sis ručně vyzkoušel(a) v prohlížeči - `main` je
+   VEŘEJNĚ VIDITELNÁ větev (na ní stojí nasazená verze), nikdy do ní
+   nepushuj rozpracovaný/neotestovaný stav.
+3. Render má (ve výchozím nastavení Blueprintu) zapnutý **auto-deploy**
+   na `main` - každý push automaticky spustí nový build+deploy, během
+   pár minut.
+4. Po nasazení zopakuj smoke test výše (zvlášť `/healthz` a jedno
+   reálné vyhledání).
+
+Pro měřítko "jeden vývojář, pár testerů" je tenhle jednoduchý
+push-na-main tok dostatečný a bezpečný - samostatná `dev`/`feature`
+větev dává smysl přidat, až bys chtěl(a) připravovat větší změnu bez
+rizika, že omylem skončí na `main` před dokončením (pak stačí pracovat
+na `dev`, mergovat do `main` jen vědomě, až je změna hotová a otestovaná).
+
+### Co zůstává omezené na bezplatném plánu
+
+- **Uspávání při nečinnosti**: Render Free uspí webovou službu po ~15
+  minutách bez provozu; první request po probuzení trvá navíc desítky
+  sekund (cold start), než appka znovu naběhne - normální chování
+  bezplatného plánu, ne chyba.
+- **Žádná garance persistentního disku**: i precomputed cache
+  (`terrain_cache.sqlite3` apod.) se při KAŽDÉM nasazení vrátí přesně
+  na to, co je v Gitu - cokoliv appka dopočítá "za běhu" (nový bod na
+  mapě) se restartem/dalším nasazením ztratí. Pro katalogová místa to
+  nevadí (jsou v Gitu), pro úplně nové body to znamená opakovaný
+  "studený" DEM fetch po každém restartu.
+- **Sdílené, omezené CPU/RAM** (typicky 512 MB) - v praxi otestováno,
+  že jedna DEM dlaždice zabere v paměti řádově desítky MB, ne stovky,
+  ale skutečné chování pod zatížením víc testerů najednou ověř až živě.
+- Pokud by se cokoliv z tohohle v budoucnu ukázalo jako nedostatečné,
+  dalším krokem by bylo buď zvětšit Render instanci (placené), nebo
+  připojit persistentní disk (na Free plánu nedostupné) - žádný z
+  těchto kroků se neprovádí automaticky, je to vědomé rozhodnutí až na
+  základě skutečné potřeby.
