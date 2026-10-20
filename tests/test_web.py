@@ -985,6 +985,44 @@ def test_candidates_endpoint_one_candidate_failing_does_not_break_others(fake_ca
         assert "sunset_score" not in c  # ani jeden se nedočkal (mock vždy spadne), ale pořád jen fallback, ne chyba
 
 
+def test_candidates_endpoint_excludes_candidate_below_terrain_quality_floor(monkeypatch, tmp_path):
+    # Zpětná vazba - "proč bysme se měli zaobírat tím, kde ten západ
+    # jde vidět jen trošku, když vedle je o dost lepší" - stejný práh
+    # jako /api/find_sunset, aplikovaný na terrain-only `rating` z
+    # předpočítaného souboru (nezávisle na tom, jestli se podařilo
+    # dopočítat živé `sunset_score`).
+    dataset = {
+        "region": "lowfloor", "generated_at": "2026-09-01T12:00:00+02:00", "analyzed_for_date": "2026-09-01",
+        "candidate_count": 2,
+        "candidates": [
+            {
+                "id": "good", "name": "Good Peak", "lat": 50.0, "lon": 14.0, "type": "peak",
+                "osm_elevation_m": 900.0, "measured_elevation_m": 900.0, "rating": 75,
+                "rating_label": "Good terrain visibility", "sunset_time": "2026-09-01T18:00:00+00:00",
+                "sunset_azimuth_deg": 270.0, "sunset_terrain_horizon_deg": -1.0, "delay_minutes": 0.0,
+                "terrain_obstruction": False,
+            },
+            {
+                "id": "bad", "name": "Blocked Hill", "lat": 50.1, "lon": 14.1, "type": "hill",
+                "osm_elevation_m": 500.0, "measured_elevation_m": 500.0, "rating": 35,
+                "rating_label": "Sunset largely obstructed", "sunset_time": "2026-09-01T18:00:00+00:00",
+                "sunset_azimuth_deg": 270.0, "sunset_terrain_horizon_deg": 20.0, "delay_minutes": 60.0,
+                "terrain_obstruction": True,
+            },
+        ],
+    }
+    path = tmp_path / "candidates_lowfloor.json"
+    path.write_text(json.dumps(dataset))
+    monkeypatch.setitem(main_module.CANDIDATE_DATASETS, "lowfloor", path)
+    monkeypatch.setattr(main_module.catalog_db, "get_by_id", lambda cid, db_path=None: None)  # terén necachovaný - jen rating z filu rozhoduje
+
+    r = client.get("/api/candidates?region=lowfloor")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["candidate_count"] == 1
+    assert [c["id"] for c in data["candidates"]] == ["good"]
+
+
 # --- Milestone "Nationwide Live Search" - GET /api/search, teď nad
 # `catalog_db.radius_search()` (celostátní katalog), ne nad 3 ručně
 # vybranými regiony. Stejné `fake_catalog`/`fake_cache`/`fake_worker`
@@ -1319,6 +1357,31 @@ def _fake_static_terrain(lat, lon, elevation_m=800.0):
     return _StaticTerrain(location=location, dem=dem, terrain=terrain, warnings=[])
 
 
+def _fake_static_terrain_blocked(lat, lon, elevation_m=800.0):
+    """Stejné jako `_fake_static_terrain()`, ale se ZAKRYTÝM 360°
+    horizontem (+20° všude) - simuluje místo se skutečně špatným
+    terénem (zadání bod - terénní práh `MIN_DISPLAYED_TERRAIN_RATING`)."""
+    azimuths = np.arange(0.0, 360.0, 1.0)
+    altitudes = np.full_like(azimuths, 20.0)
+    profile = _HorizonProfile(azimuths_deg=azimuths, horizon_altitude_deg=altitudes)
+    terrain = _TerrainInfo(
+        azimuths_deg=[float(a) for a in azimuths],
+        horizon_altitudes_deg=[float(v) for v in altitudes],
+        minimum_horizon_deg=20.0,
+        maximum_horizon_deg=20.0,
+        slope_deg=5.0,
+        aspect_deg=180.0,
+        _profile=profile,
+    )
+    dem = _DemInfo(
+        provider="cuzk_dmr5g", dataset="ČÚZK DMR 5G (DTM)", resolution_m=10.0, analysis_range_m=50000.0,
+        source_crs="EPSG:4326", acquired_at=datetime(2026, 9, 25, tzinfo=timezone.utc), fallback_used=False,
+        fallback_reason=None, quality_flag="ok",
+    )
+    location = _LocationInfo(latitude=lat, longitude=lon, elevation_m=elevation_m)
+    return _StaticTerrain(location=location, dem=dem, terrain=terrain, warnings=[])
+
+
 class _FakeWorker:
     """Nahrazuje `app.terrain_worker.get_worker()` - žádné reálné
     vlákno/DEM volání, jen zaznamená, co by bylo zařazeno (zadání bod
@@ -1478,6 +1541,45 @@ def test_find_sunset_cache_miss_enqueues_and_returns_no_wait(fake_catalog, fake_
     assert data["enqueued_count"] == 2
     assert sorted(fake_worker.enqueued_calls) == ["mid", "near"]
     assert data["results"] == []  # zadání bod 13 - Best Sunset jen z ready, nikdy odhad
+
+
+# --- Zpětná vazba (živé použití) - "proč bysme se měli zaobírat tím,
+# kde ten západ jde vidět jen trošku, když vedle je o dost lepší" -
+# MIN_DISPLAYED_TERRAIN_RATING terénní práh ---
+
+
+def test_find_sunset_excludes_candidate_below_terrain_quality_floor(fake_catalog, fake_cache, fake_worker):
+    cache_state, static_by_id = fake_cache
+    cache_state["near"] = "ready"
+    static_by_id["near"] = _fake_static_terrain(50.0, 14.0, elevation_m=950.0)  # dobrý terén
+    cache_state["mid"] = "ready"
+    static_by_id["mid"] = _fake_static_terrain_blocked(50.05, 14.0, elevation_m=700.0)  # zakrytý horizont
+
+    r = client.post("/api/find_sunset", json={"lat": 50.0, "lon": 14.0, "radius_km": 10})
+    data = r.json()
+    # Oba kandidáti byli SKUTEČNĚ analyzovaní (ready_count počítá obojí),
+    # ale "mid" se do doporučení nedostal - appka ho nikdy nevymyslí jako
+    # "waiting"/"failed" (byl opravdu hotový), jen ho nenabídne.
+    assert data["ready_count"] == 2
+    assert data["below_quality_floor_count"] == 1
+    result_ids = [r["id"] for r in data["results"]]
+    assert result_ids == ["near"]
+    assert all(c["id"] != "mid" for c in data["other_candidates"])
+
+
+def test_find_sunset_all_candidates_below_floor_gives_empty_results_not_error(fake_catalog, fake_cache, fake_worker):
+    cache_state, static_by_id = fake_cache
+    cache_state["near"] = "ready"
+    static_by_id["near"] = _fake_static_terrain_blocked(50.0, 14.0, elevation_m=950.0)
+    cache_state["mid"] = "ready"
+    static_by_id["mid"] = _fake_static_terrain_blocked(50.05, 14.0, elevation_m=700.0)
+
+    r = client.post("/api/find_sunset", json={"lat": 50.0, "lon": 14.0, "radius_km": 10})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["ready_count"] == 2
+    assert data["below_quality_floor_count"] == 2
+    assert data["results"] == []
 
 
 def test_find_sunset_running_candidate_is_pending_not_reenqueued(fake_catalog, fake_cache, fake_worker):

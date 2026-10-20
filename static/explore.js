@@ -228,10 +228,17 @@ function renderFindSunsetOutcome(data, geo, radiusKm, { isBackgroundUpdate = fal
   const best = data.results.find((r) => r.id === findSunsetHeroId) || data.results[0] || null;
 
   if (!best) {
+    // Zpětná vazba (terénní kvalitní práh, MIN_DISPLAYED_TERRAIN_RATING
+    // v app/main.py) - "nulové výsledky" už NEMUSÍ znamenat "ještě se
+    // počítá", viz stejný komentář ve static/app.js.
+    const stillPending = data.enqueued_count + data.pending_count > 0;
+    const allBelowFloor = !stillPending && (data.below_quality_floor_count || 0) > 0;
     if (!isBackgroundUpdate) {
       setStatus(null);
       setError(
-        `${data.found_count} vyhlídek nalezeno. Zatím žádná nemá hotové hodnocení (vyhodnocují se na pozadí, viz seznam).`,
+        allBelowFloor
+          ? `${data.found_count} vyhlídek nalezeno - žádná z nich ale nemá dost otevřený výhled na západ (zkus větší okruh).`
+          : `${data.found_count} vyhlídek nalezeno. Zatím žádná nemá hotové hodnocení (vyhodnocují se na pozadí, viz seznam).`,
       );
     }
     lastCandidates = [];

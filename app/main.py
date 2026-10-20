@@ -484,6 +484,15 @@ def api_candidates(region: str = "beskydy", timezone: str = DEFAULT_TIMEZONE):
         c["sunset_type"] = live["sunset_type"]
         c["color_potential"] = live["color_potential"]
         c["inversion_potential"] = live["inversion_potential"]
+
+    # Zpětná vazba (živé použití) - "proč bysme se měli zaobírat tím,
+    # kde ten západ jde vidět jen trošku, když vedle je o dost lepší" -
+    # stejný terénní práh jako `/api/find_sunset` (MIN_DISPLAYED_TERRAIN_RATING,
+    # zdůvodnění tam). Terén je stabilní vlastnost místa (`rating`, ne
+    # dnešní `sunset_score`), takže se podle něj filtruje bez ohledu na
+    # dnešní počasí - slabé místo se nenavrátí ani v jasný den.
+    dataset["candidates"] = [c for c in dataset.get("candidates", []) if c["rating"] >= MIN_DISPLAYED_TERRAIN_RATING]
+    dataset["candidate_count"] = len(dataset["candidates"])
     return dataset
 
 
@@ -676,6 +685,18 @@ def api_search(lat: float, lon: float, radius_km: float = 25.0, candidate_type: 
 # (app/terrain_worker.py) a vrátí, co je SKUTEČNĚ hotové HNED.
 MAX_TERRAIN_ANALYSIS_CANDIDATES = 15
 
+# Zpětná vazba (živé použití) - "proč bysme se měli zaobírat tím, kde ten
+# západ jde vidět jen trošku, když vedle je o dost lepší" - místa s
+# OTEVŘENĚ ŠPATNÝM terénem (zakrytý horizont bez ohledu na počasí, viz
+# app/terrain_score.py) appka dál nikde NEZOBRAZUJE jako doporučení,
+# bez ohledu na to, jaké je zrovna počasí (terén je stabilní vlastnost
+# místa, ne dnešní podmínka - zadání "terén, ne dnešní skóre"). Místo se
+# POŘÁD analyzuje (žádná ztráta dat/DEM práce), jen se nenabízí jako
+# doporučený výsledek - hranice 60 je polovina pásma "Fair" (50-69, viz
+# _composite_label výš), tedy "už jen slušný výhled a lepší", ne
+# "naprosto otevřený", ale pořád NAD "jen trochu vidět".
+MIN_DISPLAYED_TERRAIN_RATING = 60
+
 
 class FindSunsetRequest(BaseModel):
     lat: float
@@ -856,7 +877,7 @@ def api_find_sunset(req: FindSunsetRequest, request: Request):
         # musí platit i pro prázdný radius, ne jen pro neprázdný.
         return {
             "found_count": 0, "to_analyze_count": 0, "ready_count": 0, "enqueued_count": 0, "pending_count": 0,
-            "failed_count": 0, "previously_failed_count": 0, "fully_covered": True, "results": [],
+            "failed_count": 0, "previously_failed_count": 0, "below_quality_floor_count": 0, "fully_covered": True, "results": [],
             "other_candidates": [], "other_candidates_truncated": False,
             "other_candidates_remaining": 0, "other_candidates_next_offset": 0,
         }
@@ -902,6 +923,8 @@ def api_find_sunset(req: FindSunsetRequest, request: Request):
     pending_count = 0
     failed_count = 0
     previously_failed_count = 0  # Milestone "Trustworthy Results with Partial Cache" - viz níže
+    ready_count = 0  # "opravdu analyzováno" - NEZÁVISLÉ na kvalitním filtru níž
+    below_quality_floor_count = 0  # zadání - analyzováno, ale terén pod MIN_DISPLAYED_TERRAIN_RATING
     for c in to_check:
         status = terrain_cache.get_status(c["id"], cache_key)
         if status == terrain_cache.STATUS_READY:
@@ -922,11 +945,22 @@ def api_find_sunset(req: FindSunsetRequest, request: Request):
                 _other(c, "waiting")
                 continue
             try:
-                results.append(_dynamic_result_from_cache(c, static, when, c["distance_km"], req.timezone, req.preferences))
+                entry = _dynamic_result_from_cache(c, static, when, c["distance_km"], req.timezone, req.preferences)
             except Exception:
                 logger.exception("Dynamická sunset analýza selhala pro %s i přes cache hit", c["id"])
                 failed_count += 1
                 _other(c, "failed")
+            else:
+                ready_count += 1
+                # Zadání - terén pod prahem se appka dál VŮBEC nenabízí
+                # jako doporučení (ani do `other_candidates` - to je
+                # vyhrazené pro "zatím nevyhodnoceno", ne "vyhodnoceno a
+                # nestačí"). Analýza proběhla, nic se nezahazuje/neztrácí,
+                # jen se to neukazuje jako doporučené místo.
+                if entry["rating"] < MIN_DISPLAYED_TERRAIN_RATING:
+                    below_quality_floor_count += 1
+                else:
+                    results.append(entry)
         elif status == terrain_cache.STATUS_RUNNING:
             pending_count += 1
             _other(c, "evaluating")
@@ -1020,11 +1054,17 @@ def api_find_sunset(req: FindSunsetRequest, request: Request):
     return {
         "found_count": found_count,
         "to_analyze_count": len(to_check),
-        "ready_count": len(results),
+        "ready_count": ready_count,
         "enqueued_count": enqueued_count,
         "pending_count": pending_count,
         "failed_count": failed_count,
         "previously_failed_count": previously_failed_count,
+        # Zadání - kolik ze SKUTEČNĚ hotových (`ready_count`) appka
+        # schválně nenabízí jako doporučení, protože jejich terén je pod
+        # `MIN_DISPLAYED_TERRAIN_RATING` - odlišené od `ready_count`,
+        # aby "0 results, ale ready_count > 0" nepůsobilo, jako by se
+        # něco ztratilo/zaseklo (frontend to rozlišuje, viz static/app.js).
+        "below_quality_floor_count": below_quality_floor_count,
         "fully_covered": fully_covered,
         "results": results,
         # Milestone "Immediate Full Results" - KAŽDÝ nalezený kandidát

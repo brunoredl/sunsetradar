@@ -1881,17 +1881,27 @@ async function renderFindSunsetOutcome(data, geo, radiusKm, { isBackgroundUpdate
     // Zadání bod "pokud žádné místo nemá platné hodnocení, nezobrazuj
     // falešného vítěze... navrhni jasný stav bez výsledku". Celá
     // nalezená množina (other_candidates) se i tak zobrazí jako čekající.
+    //
+    // Zpětná vazba (terénní kvalitní práh, MIN_DISPLAYED_TERRAIN_RATING
+    // v app/main.py) - "nulové výsledky" už NEMUSÍ znamenat "ještě se
+    // počítá" - `below_quality_floor_count > 0` + nic nečeká na pozadí
+    // znamená "už je hotovo, ale žádné místo nemělo dost dobrý terén".
+    // Stará hláška by tohle tvrdila falešně ("vyhodnocují se na
+    // pozadí"), i když appka už skončila.
+    const stillPending = data.enqueued_count + data.pending_count > 0;
+    const allBelowFloor = !stillPending && (data.below_quality_floor_count || 0) > 0;
+    const message = allBelowFloor
+      ? `${data.found_count} vyhlídek nalezeno v okruhu ${radiusKm} km - žádná z nich ale nemá dost otevřený výhled ` +
+        `na západ (zkus prosím větší okruh).`
+      : `${data.found_count} vyhlídek nalezeno v okruhu ${radiusKm} km - zatím žádná nemá hotové hodnocení ` +
+        `(právě se vyhodnocují na pozadí, viz seznam níže).`;
     if (!isBackgroundUpdate) {
       setSearchStatus(null);
-      setSearchError(
-        `${data.found_count} vyhlídek nalezeno v okruhu ${radiusKm} km - zatím žádná nemá hotové hodnocení ` +
-          `(právě se vyhodnocují na pozadí, viz seznam níže).`,
-      );
+      setSearchError(message);
     }
     hideStaleRecommendation();
     document.getElementById("other-sunsets").hidden = false;
-    document.getElementById("other-sunsets-hint").textContent =
-      `${data.found_count} vyhlídek nalezeno v okruhu ${radiusKm} km - zatím žádná nemá hotové hodnocení.`;
+    document.getElementById("other-sunsets-hint").textContent = message;
     renderFindSunsetGrid([], data.other_candidates, null);
     updateShowMoreButton(data, geo, radiusKm);
     whenMapReady(() => renderCandidateMarkers([], null));
