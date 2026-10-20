@@ -1068,6 +1068,16 @@ def test_search_dynamic_computation_failure_marked_error_not_crash(fake_catalog,
 
 
 # --- Fáze 11 - GET /api/geocode (Nominatim, viz audit v app/main.py) ---
+#
+# Oprava produkčního nálezu (Render Free - 429 od Nominatim splácalo na
+# matoucí 502, žádná cache) - skutečné volání Nominatim + cache + throttle
+# teď žijí v app/geocode_cache.py (vlastní, podrobné testy v
+# tests/test_geocode_cache.py). Testy tady ověřují ROUTE/HTTP vrstvu
+# (stejný vzor jako `fake_cache`/`fake_worker` pro terrain cache výš) -
+# `geocode_isolated_cache` přesměruje `geocode_cached()` na dočasnou
+# SQLite v `tmp_path`, aby testy nesdílely stav mezi sebou ani s
+# reálnou `data/geocode_cache.sqlite3`, ale pořád běžela SKUTEČNÁ
+# cache/throttle logika, ne fake.
 
 
 class _FakeGeocodeResponse:
@@ -1083,12 +1093,30 @@ class _FakeGeocodeResponse:
         return self._payload
 
 
-def test_geocode_returns_coordinates_for_known_place(monkeypatch):
+@pytest.fixture
+def geocode_isolated_cache(monkeypatch, tmp_path):
+    db_path = tmp_path / "geocode_test.sqlite3"
+    main_module.geocode_cache.init_db(db_path)
+    original = main_module.geocode_cache.geocode_cached
+
+    def wrapped(query, db_path=db_path):
+        return original(query, db_path=db_path)
+
+    monkeypatch.setattr(main_module.geocode_cache, "geocode_cached", wrapped)
+    # Throttle je process-globální (zadání bod 2 - "max 1 req/s napříč
+    # VŠEMI požadavky") - mezi testy by zbytečně zpomaloval, bez dopadu
+    # na to, co se skutečně testuje.
+    monkeypatch.setattr(main_module.geocode_cache, "_last_request_monotonic", 0.0)
+    monkeypatch.setattr(main_module.geocode_cache, "MIN_REQUEST_INTERVAL_S", 0.0)
+    return db_path
+
+
+def test_geocode_returns_coordinates_for_known_place(monkeypatch, geocode_isolated_cache):
     def fake_get(url, params=None, headers=None, timeout=None):
         assert "countrycodes" in params and params["countrycodes"] == "cz"
         return _FakeGeocodeResponse(200, [{"lat": "49.4896099", "lon": "18.2651488", "display_name": "Pustevny, Česko"}])
 
-    monkeypatch.setattr(main_module.requests, "get", fake_get)
+    monkeypatch.setattr(main_module.geocode_cache.requests, "get", fake_get)
     r = client.get("/api/geocode?q=Pustevny")
     assert r.status_code == 200
     data = r.json()
@@ -1101,22 +1129,51 @@ def test_geocode_empty_query_returns_400():
     assert r.status_code == 400
 
 
-def test_geocode_no_results_returns_404(monkeypatch):
+def test_geocode_no_results_returns_404(monkeypatch, geocode_isolated_cache):
     def fake_get(url, params=None, headers=None, timeout=None):
         return _FakeGeocodeResponse(200, [])
 
-    monkeypatch.setattr(main_module.requests, "get", fake_get)
+    monkeypatch.setattr(main_module.geocode_cache.requests, "get", fake_get)
     r = client.get("/api/geocode?q=xxNoSuchPlacexx")
     assert r.status_code == 404
 
 
-def test_geocode_network_error_returns_502(monkeypatch):
+def test_geocode_network_error_returns_502(monkeypatch, geocode_isolated_cache):
     def fake_get(url, params=None, headers=None, timeout=None):
         raise requests.exceptions.ConnectionError("network down")
 
-    monkeypatch.setattr(main_module.requests, "get", fake_get)
+    monkeypatch.setattr(main_module.geocode_cache.requests, "get", fake_get)
     r = client.get("/api/geocode?q=Pustevny")
     assert r.status_code == 502
+
+
+def test_geocode_rate_limited_by_nominatim_returns_503_not_502(monkeypatch, geocode_isolated_cache):
+    # Přesně nahlášený produkční bug - Nominatim 429 dřív splácal na
+    # stejnou matoucí 502 jako jakákoliv jiná chyba.
+    def fake_get(url, params=None, headers=None, timeout=None):
+        return _FakeGeocodeResponse(429, None)
+
+    monkeypatch.setattr(main_module.geocode_cache.requests, "get", fake_get)
+    r = client.get("/api/geocode?q=Brno")
+    assert r.status_code == 503
+    assert "429" not in r.json()["error"]  # uživateli srozumitelná zpráva, ne syrový kód
+
+
+def test_geocode_repeated_identical_query_hits_cache_not_nominatim_again(monkeypatch, geocode_isolated_cache):
+    # Zadání bod 3 - "opakované hledání stejného místa nesmí zbytečně
+    # generovat další externí požadavky".
+    call_count = {"n": 0}
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        call_count["n"] += 1
+        return _FakeGeocodeResponse(200, [{"lat": "49.19", "lon": "16.61", "display_name": "Brno, Česko"}])
+
+    monkeypatch.setattr(main_module.geocode_cache.requests, "get", fake_get)
+    r1 = client.get("/api/geocode?q=Brno")
+    r2 = client.get("/api/geocode?q=Brno")
+    r3 = client.get("/api/geocode?q=  brno  ")  # normalizace (whitespace/case) sdílí stejný cache záznam
+    assert r1.status_code == r2.status_code == r3.status_code == 200
+    assert call_count["n"] == 1
 
 
 # --- Milestone "Persistent Terrain Cache + Background Precomputation" -

@@ -27,6 +27,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, field_validator
 
 from app import catalog_db
+from app import geocode_cache
 from app import national_grid
 from app import regions as region_defs
 from app import terrain_cache
@@ -126,6 +127,9 @@ terrain_cache.init_db()
 # samostatná SQLite databáze (data/weather_cache.sqlite3), ne stejná
 # tabulka jako terrain (zadání bod 7 - "odděl static/dynamic").
 weather_cache.init_db()
+# Oprava produkčního nálezu (bezplatné nasazení) - persistentní cache
+# geokódování, viz app/geocode_cache.py.
+geocode_cache.init_db()
 
 
 class PreferencesModel(BaseModel):
@@ -456,30 +460,30 @@ def api_geocode(q: str, request: Request):
     aby šel nastavit správný User-Agent a aby to nebylo blokované CORS
     politikou Nominatim.
 
-    Nasazovací audit (bezplatné testovací nasazení) - navíc per-IP
-    limiter (`_geocode_limiter`), aby veřejný provoz nemohl Nominatim
-    zahltit nad rámec jeho fair-use politiky (viz výše)."""
+    OPRAVA (produkční nález, Render Free) - skutečné volání Nominatim +
+    persistentní cache + globální throttle teď žijí v
+    `app/geocode_cache.py` (plné zdůvodnění tam) - tenhle handler jen
+    převádí `geocode_cached()` na HTTP odpověď, včetně rozlišení
+    429/jiných chyb (dřív obojí splácalo na stejnou matoucí 502).
+    Žádná automatická retry smyčka - jeden pokus, poctivá zpráva."""
     if not _geocode_limiter.check(_client_key(request)):
         return JSONResponse({"error": "Příliš mnoho požadavků na vyhledávání - zkus to prosím za chvíli znovu."}, status_code=429)
     q = q.strip()
     if not q:
         return JSONResponse({"error": "Zadej název místa."}, status_code=400)
     try:
-        response = requests.get(
-            "https://nominatim.openstreetmap.org/search",
-            params={"q": q, "format": "json", "countrycodes": "cz", "limit": 1},
-            headers={"User-Agent": "SunsetRadar/0.1 (dev prototype)"},
-            timeout=10,
+        return geocode_cache.geocode_cached(q)
+    except geocode_cache.GeocodeNotFoundError:
+        return JSONResponse({"error": f"Místo '{q}' se nepodařilo najít."}, status_code=404)
+    except geocode_cache.GeocodeRateLimitedError as exc:
+        logger.warning("Nominatim rate-limit (429) pro dotaz '%s': %s", q, exc)
+        return JSONResponse(
+            {"error": "Vyhledávání místa je teď dočasně přetížené (externí limit Nominatim), zkus to prosím za chvíli znovu."},
+            status_code=503,
         )
-        response.raise_for_status()
-        results = response.json()
-    except requests.exceptions.RequestException as exc:
+    except geocode_cache.GeocodeUnavailableError as exc:
         logger.warning("Geocoding selhal pro dotaz '%s': %s", q, exc)
         return JSONResponse({"error": "Vyhledávání místa teď není dostupné, zkus to prosím znovu."}, status_code=502)
-    if not results:
-        return JSONResponse({"error": f"Místo '{q}' se nepodařilo najít."}, status_code=404)
-    r = results[0]
-    return {"lat": float(r["lat"]), "lon": float(r["lon"]), "display_name": r["display_name"]}
 
 
 # Milestone "Nationwide Live Search" - kolik z nalezených-ale-nehodnocených

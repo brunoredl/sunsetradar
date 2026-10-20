@@ -26,8 +26,10 @@ __pycache__/
 data/cuzk_cache/
 data/dem_cache/
 
-# Regenerovatelná TTL cache počasí (malá, ale bezúčelná verzovat).
+# Regenerovatelná TTL cache počasí a geokódování (malé, ale bezúčelné
+# verzovat - viz app/weather_cache.py / app/geocode_cache.py).
 data/weather_cache.sqlite3
+data/geocode_cache.sqlite3
 
 # Starší offline-build-only Overpass cache (used only by
 # scripts/build_candidate_catalog.py / build_national_catalog.py, NE
