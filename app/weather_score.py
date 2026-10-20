@@ -8,12 +8,26 @@ datasetu - to je v komentářích řečeno na rovinu.
 
 Rozlišuje (zadání bod 11):
 - NÍZKÁ oblačnost (`cloud_cover_low`) - přímo zakrývá horizont, kam
-  Slunce zapadá -> nejvíc škodí, váha 50 %.
+  Slunce zapadá -> JESTLI vůbec půjde západ spatřit, nejvíc škodí,
+  váha 70 %.
 - STŘEDNÍ/VYSOKÁ oblačnost (`cloud_cover_mid`/`cloud_cover_high`) -
   Slunce je pod nimi/za nimi, ale ONY jsou to, co se "rozsvítí" barvou
   při západu -> střední množství (~30-55 %) je LEPŠÍ než čisté nebe,
-  extrémy (0 % nebo >90 %) jsou horší -> váha 35 %, "zvonová" křivka.
+  extrémy (0 % nebo >90 %) jsou horší -> váha 15 %, "zvonová" křivka.
 - SRÁŽKY (pravděpodobnost/množství) -> tvrdý penalty, váha 15 %.
+
+ZPĚTNÁ VAZBA (živé použití) - "nejvíc záleží na tom, jestli to vůbec
+jde vidět... barvy jsou až dodatečně, ale když nejde vidět, tak je to
+k ničemu, ale když jsou na obloze mraky, to bude pěkný západ". Dřív
+měla "barevnost" (drama_score) skoro stejnou váhu jako "vidíš to vůbec"
+(nízká oblačnost) - appka pak uměla ukázat vysoké skóre i při zatažené
+obloze, pokud byly mraky "ve správném pásmu". Váhy teď jasně dávají
+VIDITELNOST na první místo (70 %, nahoru z 50 %) a barevnost dolů na
+pouhý bonus (15 %, dolů z 35 %) - mírná střední/vysoká oblačnost PŘI
+OTEVŘENÉM horizontu pořád správně zvýší skóre (to je přesně "pěkný
+západ", ne penalizace), jen už nemůže vykompenzovat zatažený horizont.
+Aktivní srážky TEĎ navíc tvrdě omezí CELOU komponentu (ne jen svou
+15% podsložku) - "když má pršet, je jasné že není [vidět]", viz níž.
 
 Atmosphere (zadání bod 9 - samostatná 10% komponenta finálního Sunset
 Score, ne součást weather_score) se počítá TADY (`compute_atmosphere_score()`),
@@ -61,15 +75,24 @@ def compute_weather_score(weather: WeatherInfo | None) -> WeatherScoreResult:
 
     precip_prob = weather.precipitation_probability_pct if weather.precipitation_probability_pct is not None else 0.0
     precip_score = _clamp(100.0 - precip_prob)
-    if weather.precipitation_mm > 0.1:
+    is_raining_now = weather.precipitation_mm > 0.1
+    if is_raining_now:
         precip_score = _clamp(precip_score - 30.0)  # skutečně prší/sněží teď, ne jen pravděpodobnost
 
-    overall = 0.50 * low_cloud_score + 0.35 * drama_score + 0.15 * precip_score
+    overall = 0.70 * low_cloud_score + 0.15 * drama_score + 0.15 * precip_score
+    # Zpětná vazba (živé použití) - aktivní srážky TEĎ strhnou CELOU
+    # komponentu na nízký strop, ne jen svou dílčí 15% váhu výš - žádná
+    # kombinace dobrého terénu/barevnosti/dohlednosti nemá smysl, pokud
+    # momentálně prší (přímá, ne jen pravděpodobnostní informace).
+    if is_raining_now:
+        overall = min(overall, 15.0)
     overall = round(_clamp(overall), 1)
 
     bits = [f"{low:.0f}% low cloud", f"{mid_high:.0f}% mid/high cloud"]
     if precip_prob > 20:
         bits.append(f"{precip_prob:.0f}% chance of precipitation")
+    if is_raining_now:
+        bits.append("currently raining/snowing")
     return WeatherScoreResult(score_0_100=overall, detail=", ".join(bits))
 
 

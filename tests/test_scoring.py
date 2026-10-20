@@ -124,6 +124,63 @@ def test_high_clouds_with_clear_low_layer_scores_well_not_poorly():
     assert result.score_0_100 > baseline_clear.score_0_100  # střední oblačnost > čisté nebe (drama bonus)
 
 
+# --- Zpětná vazba (živé použití, Render Free produkce) - "appka řekne
+# cloudy, ale skóre ukazuje ~90 %". Barevnost (drama_score) dřív měla
+# skoro stejnou váhu jako samotná viditelnost (nízká oblačnost) - appka
+# tak uměla ukázat vysoké skóre i při zatažené obloze. Viditelnost teď
+# musí být JASNĚ dominantní nad barevností. ---
+def test_heavy_low_cloud_overcast_scores_poorly_even_with_favorable_mid_high_band():
+    # Nízká oblačnost téměř úplně zatažená (přesně "appka řekne cloudy")
+    # - i kdyby střední/vysoká oblačnost náhodou padla do "ideálního"
+    # pásma pro drama_score, celková komponenta musí zůstat nízká,
+    # protože o VIDITELNOSTI samotné rozhoduje hlavně low cloud.
+    weather = _weather(cloud_total=90.0, cloud_low=90.0, cloud_mid=40.0, cloud_high=40.0)
+    result = compute_weather_score(weather)
+    assert result.score_0_100 <= 30
+
+
+def test_visibility_dominates_over_color_drama_in_weighting():
+    # Stejná "ideální" barevnost (mid/high ~35%) ve dvou scénářích -
+    # jediný rozdíl je nízká oblačnost (otevřený vs. zatažený horizont).
+    # Rozdíl ve výsledku musí být VELKÝ (viditelnost dominuje), ne jen
+    # mírný posun (jako při staré 50/35/15 váze).
+    open_horizon = compute_weather_score(_weather(cloud_total=35.0, cloud_low=5.0, cloud_mid=20.0, cloud_high=15.0))
+    overcast = compute_weather_score(_weather(cloud_total=90.0, cloud_low=85.0, cloud_mid=20.0, cloud_high=15.0))
+    assert open_horizon.score_0_100 - overcast.score_0_100 > 40
+
+
+def test_moderate_clouds_with_open_horizon_still_scores_better_than_perfectly_clear():
+    # Zpětná vazba - "když je hezky, ale na obloze jsou mraky, bude to
+    # pěkný západ" - tenhle bonus NESMÍ zmizet, jen dostal menší váhu.
+    # Nízká oblačnost (co by viditelnost) musí zůstat STEJNÁ (0) v obou
+    # scénářích - jinak by test neporovnával barevnost samotnou (viz
+    # test_visibility_dominates_over_color_drama_in_weighting výš, kde
+    # se nízká oblačnost záměrně LIŠÍ).
+    moderate = compute_weather_score(_weather(cloud_total=35.0, cloud_low=0.0, cloud_mid=20.0, cloud_high=15.0))
+    perfectly_clear = compute_weather_score(_weather(cloud_total=0.0, cloud_low=0.0, cloud_mid=0.0, cloud_high=0.0))
+    assert moderate.score_0_100 > perfectly_clear.score_0_100
+
+
+def test_actively_raining_hard_caps_weather_score_regardless_of_other_factors():
+    # Zpětná vazba - "když má pršet, je jasné že není [vidět]" - i při
+    # jinak otevřeném horizontu a "ideální" barevnosti musí aktivní
+    # srážka (ne jen pravděpodobnost) srazit CELOU komponentu na nízký
+    # strop, ne jen o pár bodů.
+    weather = _weather(cloud_total=35.0, cloud_low=5.0, cloud_mid=20.0, cloud_high=15.0, precip_prob=80.0, precip_mm=2.0)
+    result = compute_weather_score(weather)
+    assert result.score_0_100 <= 15
+    assert "raining" in result.detail
+
+
+def test_high_precipitation_probability_without_actual_rain_is_not_hard_capped():
+    # Jen PRAVDĚPODOBNOST srážek (žádná aktuálně měřená srážka) je
+    # pořád jen měkká penalizace (15% podsložka), ne tvrdý strop - ten
+    # je vyhrazený pro SKUTEČNĚ probíhající srážku.
+    weather = _weather(cloud_total=35.0, cloud_low=5.0, cloud_mid=20.0, cloud_high=15.0, precip_prob=80.0, precip_mm=0.0)
+    result = compute_weather_score(weather)
+    assert result.score_0_100 > 15
+
+
 # --- Scénář: No weather data ---
 def test_no_weather_data_reweights_instead_of_faking():
     analysis = _analysis(horizon_at_sunset_deg=-3.0, delay_minutes=0.0, sector_open_fraction=1.0, duration_minutes=90.0)
