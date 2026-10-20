@@ -1,0 +1,1501 @@
+/* Fáze 8 - "premium outdoor / sunset" paleta (zadání bod 3/4): ne čistě
+   černá GIS tma, ale tmavá horská večerní atmosféra s teplými sunset
+   plochami kolem konkrétních komponent (hero/rating/panorama), ne
+   všude. --surface/--surface-2 dávají sekcím jemně odlišenou hloubku
+   místo jedné dlouhé stejně tmavé plochy. */
+:root {
+  --bg: #10141f;
+  --surface: #161b2c;
+  --surface-2: #1d2338;
+  --panel: #161b26;
+  --panel-translucent: rgba(24, 29, 45, 0.94);
+  --border: #2a3049;
+  --text: #f3efe8;
+  --muted: #98a2ba;
+  --accent: #f2a559;
+  --accent-strong: #ff8f4d;
+  --accent-soft: #ffd9a0;
+  --dusk-violet: #4a3a6b;
+  --open: #4ecf8a;
+  --delayed: #f2a559;
+  --blocked: #ef5b60;
+  /* Redesign "do it again, better" - nahrazeno systémovým stackem ->
+     appka na všech OS dřív vypadala jako "cokoliv jiného" (default UI
+     font), ne jako vlastní produkt. Inter (UI/text, čitelný i drobně) +
+     Fraunces (display, teplý editorial serif s optickým sizingem - ladí
+     s "prémiová outdoor/travel" inspirací, ne generický grotesk) - obě
+     přes Google Fonts (zdarma, bez klíče/účtu, žádná platba, viz
+     <link> v <head> šablon). Žádná nová placená služba. */
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+}
+
+* { box-sizing: border-box; }
+
+html {
+  scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+/* AUDIT NÁLEZ (redesign pass) - appka nikde neresetovala výchozí barvu
+   odkazů; `.brand`/pár dalších `<a>` spoléhaly jen na to, že k nim
+   nikdy nedorazí prohlížečovo výchozí modro-podtržené chování, ale u
+   loga (`.brand`, bez vlastní `color` dřív) se to skutečně dělo -
+   logo bylo nativně modré uprostřed teplé tmavé palety, nejsilnější
+   jednotlivá vizuální chyba v dojmu "nepůsobí to jako jeden promyšlený
+   produkt". Globální reset + jednotlivé třídy dál barvu/podtržení
+   zpřesňují podle kontextu. */
+a { color: inherit; text-decoration: none; }
+
+main { max-width: 1240px; margin: 0 auto; padding: 0 1.25rem 5rem; }
+
+/* Fáze 10 (zadání bod 3) - AUDIT NÁLEZ: na 1440px+ monitoru vznikaly
+   velké nevyužité pásy po stranách vizuálně těžkých prvků (mapa, mřížka
+   karet), protože `main` je omezené na čitelnou textovou šířku. Tyhle
+   konkrétní prvky se "vybouří" na širší (ale ne 100vw) šířku - stejná
+   technika jako hero silueta, jen s max-width stropem, aby to nebylo
+   nekonečně široké na velmi širokých monitorech. Textové/hero prvky
+   zůstávají v `main` max-width pro čitelnost. */
+.bleed-wide {
+  width: 100vw;
+  max-width: 1520px;
+  margin-left: 50%;
+  transform: translateX(-50%);
+}
+
+/* Sekce se STŘÍDAVOU hloubkou plochy (zadání bod 4 - "lehce světlejší
+   navy sekce") místo jedné dlouhé stejně tmavé stránky - a teplé sunset
+   zóny jen kolem komponent, které jsou přímo o západu Slunce samotném
+   (Hero/Best Sunset/Panorama), ne všude (zadání bod 3). */
+/* Milník 12 (zadání bod 1B) - "vlastní vizuální jazyk... má odpovídat
+   předpovídaným podmínkám, ale nesmí předstírat přesnou simulaci".
+   Mood proměnné místo napevno zapsaných barev - `static/app.js
+   applySkyMood()` přepíná `.sky-mood-*` třídu na `#hero` podle
+   SKUTEČNÉHO `general_color_potential.key`, žádná nová grafika, jen
+   přetónování už existující dekorativní plochy/siluety (viz
+   `.hero-silhouette` SVG níže, jehož gradient stopy čtou STEJNÉ
+   proměnné). Výchozí (bez dat / "warm") = PŮVODNÍ barvy appky beze
+   změny, takže stránka nikdy nevypadá "rozbitě", než se počasí načte. */
+#hero {
+  --sky-glow-1: rgba(255, 159, 82, 0.16);
+  --sky-glow-2: rgba(74, 58, 107, 0.1);
+  --sky-ridge-back: #4a3a6b;
+  --sky-ridge-mid: #362a54;
+  --sky-ridge-front: #171233;
+  --sky-sun-1: #ffe8c2;
+  --sky-sun-2: #ffb066;
+  --sky-haze-1: #ffb066;
+  --sky-haze-2: #ff8f4d;
+}
+#hero.sky-mood-vivid {
+  --sky-glow-1: rgba(255, 92, 122, 0.22);
+  --sky-glow-2: rgba(120, 46, 90, 0.14);
+  --sky-ridge-back: #5c2f55;
+  --sky-ridge-mid: #43213f;
+  --sky-ridge-front: #1c1026;
+  --sky-sun-1: #ffd9dd;
+  --sky-sun-2: #ff6f91;
+  --sky-haze-1: #ff6f91;
+  --sky-haze-2: #ff4d6d;
+}
+#hero.sky-mood-muted {
+  --sky-glow-1: rgba(140, 150, 170, 0.14);
+  --sky-glow-2: rgba(60, 66, 86, 0.12);
+  --sky-ridge-back: #3c4254;
+  --sky-ridge-mid: #2c3140;
+  --sky-ridge-front: #16181f;
+  --sky-sun-1: #d7dbe4;
+  --sky-sun-2: #9aa3b5;
+  --sky-haze-1: #9aa3b5;
+  --sky-haze-2: #6b7485;
+}
+/* Fáze 9 (zadání bod 4/7) - "méně karet": sekce už nejsou ohraničené
+   krabice s viditelným borderem, ale plné horizontální PÁSY přes celou
+   šířku obrazovky (stejný "full-bleed" trik jako hero silueta) - obsah
+   zůstává v `main` max-width, ale barevná plocha sekce sahá až k
+   okrajům, takže stránka působí jako otevřená kompozice, ne jako sloupec
+   krabic. */
+#best-sunset, #panorama-section, #other-sunsets, #explore-map {
+  position: relative;
+  padding: 3rem 0;
+}
+#best-sunset::before, #panorama-section::before, #other-sunsets::before, #explore-map::before {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0;
+  left: 50%;
+  width: 100vw;
+  margin-left: -50vw;
+  z-index: -1;
+}
+#best-sunset::before, #panorama-section::before {
+  background: radial-gradient(ellipse 70% 90% at 50% 0%, rgba(255, 159, 82, 0.09), transparent 65%), var(--surface);
+}
+#other-sunsets::before, #explore-map::before {
+  background: var(--surface-2);
+}
+
+h1, h2, h3 { font-family: var(--font-display); font-weight: 600; letter-spacing: -0.01em; }
+p { margin: 0; }
+
+.hint { font-size: 0.78rem; color: var(--muted); margin-top: 0.35rem; line-height: 1.5; }
+.dev-note {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 0.35rem 0 1.25rem;
+  max-width: 52ch;
+}
+
+code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+
+/* ============================= HEADER ============================= */
+#site-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  max-width: 1080px;
+  margin: 0 auto;
+  backdrop-filter: blur(10px);
+  background: linear-gradient(to bottom, rgba(11, 14, 20, 0.85), rgba(11, 14, 20, 0.55));
+}
+/* Milník 12 (zadání bod 1) - skutečná značka (sun-over-horizon badge),
+   ne jen nápis - viz SVG v šablonách. `.brand-mark` dědí `color:
+   currentColor` pro prstenec/linky z `.brand`, jen sluneční půlkruh má
+   vlastní gradient (logo smí mít barvu navíc, na rozdíl od ikon). */
+.brand { display: inline-flex; align-items: center; gap: 0.55rem; font-family: var(--font-display); font-weight: 700; letter-spacing: 0.04em; font-size: 1.02rem; color: var(--text); }
+.brand:hover { color: var(--text); }
+.brand-mark { width: 1.9rem; height: 1.9rem; flex-shrink: 0; }
+.site-nav { display: flex; align-items: center; gap: 1rem; }
+.nav-link { color: var(--muted); text-decoration: none; font-size: 0.88rem; font-weight: 600; }
+.nav-link:hover { color: var(--text); }
+.icon-btn {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  border: 1px solid var(--border);
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+.icon-btn:hover { background: rgba(255, 255, 255, 0.12); }
+.icon-btn .icon { width: 1.15em; height: 1.15em; }
+
+/* ============================= SETTINGS DRAWER ============================= */
+.panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  width: min(340px, 100vw);
+  overflow-y: auto;
+  background: var(--panel-translucent);
+  border-left: 1px solid var(--border);
+  padding: 1.25rem;
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.45);
+}
+.panel-close { position: absolute; top: 1rem; right: 1rem; }
+.panel h3 { margin: 0 1.5rem 1rem 0; font-size: 1rem; }
+
+.field { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.9rem; }
+.field-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+.field-row .field { flex: 1; min-width: 130px; }
+label { font-size: 0.85rem; color: var(--muted); }
+input, select {
+  background: #0d1218;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  width: 100%;
+  font-family: inherit;
+}
+.manual-coords { margin-top: 0.4rem; }
+.manual-coords summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; margin-bottom: 0.5rem; }
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+/* Milník "Postupné vylepšení" (Fáze 1) - AUDIT NÁLEZ: jediný existující
+   focus stav v celé appce byl `#search-where:focus` - tlačítka/odkazy
+   neměly ŽÁDNÝ viditelný focus ring (klávesnice/accessibility mezera,
+   taky působí míň "propracovaně" než kvalitní nativní UI).
+   `:focus-visible` (ne `:focus`) - ring se ukáže jen při klávesnici/
+   screen readeru, ne při obyčejném kliku myší. */
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent-strong), var(--accent));
+  color: #1a1300;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 0.92rem;
+  letter-spacing: 0.01em;
+  /* Milník "Postupné vylepšení" (Fáze 1) - jemný, teplem tónovaný stín
+     místo ploché barvy bez hloubky (zadání "profesionálnější a
+     propracovanější charakter") - ÚMYSLNĚ decentní (žádný velký glow),
+     jen malá separace od pozadí jako u kvalitních nativních UI. */
+  box-shadow: 0 4px 14px rgba(255, 143, 77, 0.22);
+  transition: filter 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.btn-primary:hover { filter: brightness(1.06); box-shadow: 0 6px 18px rgba(255, 143, 77, 0.3); }
+.btn-primary:active { transform: translateY(1px); box-shadow: 0 2px 8px rgba(255, 143, 77, 0.22); }
+.btn-secondary {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 0.75rem 1.5rem;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 0.92rem;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.btn-secondary:hover { background: rgba(255, 255, 255, 0.06); }
+#manual-analyze-btn { background: var(--accent); color: #1a1300; border: none; border-radius: 6px; padding: 0.55rem 1rem; font-weight: 600; font-size: 0.85rem; }
+
+/* ============================= HERO ============================= */
+#hero {
+  position: relative;
+  text-align: center;
+  padding: 3.5rem 0 0;
+  overflow: hidden;
+}
+.hero-content { position: relative; z-index: 2; padding-bottom: 2rem; }
+
+/* Fáze 9 - full-bleed dekorativní horská silueta (zadání bod 2/3) -
+   "breakout" z `main` max-width přes 100vw, čistě vizuální motiv (ne
+   skutečná terrain data - ta jsou jen v Sunset Panorama). Vrstvy s
+   klesající sytostí = vzdálenost (dál = tlumenější fialová, blíž =
+   sytější navy, splývá s `--bg`). */
+.hero-silhouette {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  height: clamp(140px, 22vw, 320px);
+}
+.hero-silhouette .ridge-back { fill: var(--sky-ridge-back, #4a3a6b); opacity: 0.32; transition: fill 0.6s ease; }
+.hero-silhouette .ridge-mid { fill: var(--sky-ridge-mid, #362a54); opacity: 0.55; transition: fill 0.6s ease; }
+.hero-silhouette .ridge-front { fill: var(--sky-ridge-front, #171233); opacity: 0.95; transition: fill 0.6s ease; }
+
+/* Fáze 10 (zadání bod 5/10) - tlumenější varianta stejného motivu jako
+   pozadí "scéna" pro Best Sunset (a případně další sekce) - výsledek
+   pak nepůsobí jako izolovaná datová karta, ale jako pohled na krajinu
+   s výsledkem popředu. `z-index:-1` drží siluetu ZA textovým obsahem
+   sekce (viz #best-sunset::before stejná vrstva). */
+.scene-silhouette {
+  position: absolute;
+  z-index: -1;
+  left: 50%;
+  bottom: 0;
+  width: 100vw;
+  max-width: 1520px;
+  transform: translateX(-50%);
+  height: clamp(90px, 14vw, 190px);
+  opacity: 0.5;
+}
+.scene-silhouette .ridge-back { fill: #4a3a6b; opacity: 0.28; }
+.scene-silhouette .ridge-front { fill: #201a3a; opacity: 0.6; }
+
+.eyebrow, .section-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 0.7rem;
+}
+/* Redesign - malá vodorovná čárka před labelem ("editorial" detail,
+   ladí s Fraunces nadpisy pod ní) místo pouhého textu - čistě typogra-
+   fický detail, žádná nová informace/dekorace bez funkce. */
+.eyebrow::before, .section-eyebrow::before {
+  content: "";
+  width: 1.1rem;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.6;
+}
+/* Oranžová = "sunset / důležitá akce" (zadání bod 16), ne univerzální
+   barva pro každý nadpis sekce - vyhrazena jen sekcím, které jsou
+   přímo o západu Slunce samotném. */
+.eyebrow, .section-eyebrow.is-sunset { color: var(--accent); }
+#hero h1 { font-size: clamp(2.3rem, 6vw, 4rem); font-weight: 600; margin: 0 0 0.95rem; line-height: 1.08; letter-spacing: -0.015em; }
+.hero-sub { color: var(--muted); font-size: 1.1rem; max-width: 42ch; margin: 0 auto; line-height: 1.55; }
+.hero-location { margin-top: 1.6rem; font-size: 1.15rem; font-weight: 700; color: var(--text); display: flex; align-items: center; justify-content: center; gap: 0.4rem; }
+
+/* Milník 12 (zadání bod 1A) - "Today's sunset" dominantní karta, vlastní
+   hodnota stránky i BEZ výběru konkrétní vyhlídky. `.tonight-meta`
+   (datum/čas, drobné) -> `.tonight-headline` (DOMINANTNÍ - barevný
+   potenciál, velké písmo přes Fraunces) -> `.tonight-explain` (krátké
+   zdůvodnění, jedna věta) -> `.tonight-badges` (doplňující: horizont/
+   inverze/jistota, menší pill badge). Žádný rámeček v rámečku (zadání
+   "vyhni se zbytečným rámečkům a kartám v kartách") - karta sedí přímo
+   na hero ploše, odlišená jen typografickou hierarchií a mezerami. */
+.tonight-card { margin: 1.4rem auto 0; max-width: 34rem; }
+.tonight-card-mark { width: 2.4rem; height: 2.4rem; color: var(--muted); opacity: 0.9; margin-bottom: 0.3rem; }
+.tonight-meta { font-size: 0.85rem; color: var(--muted); letter-spacing: 0.02em; }
+.tonight-headline:not([hidden]) {
+  font-family: var(--font-display); font-weight: 600; font-size: clamp(1.5rem, 3.4vw, 2.1rem);
+  margin: 0.5rem 0 0.35rem; line-height: 1.2;
+}
+.tonight-explain:not([hidden]) { font-size: 0.98rem; color: var(--muted); line-height: 1.55; max-width: 38ch; margin: 0 auto; }
+.tonight-badges:not([hidden]) { display: flex; justify-content: center; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.9rem; }
+.tonight-next-label {
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--muted); margin: 2.4rem 0 0.6rem;
+}
+.today-badge:not([hidden]) {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  padding: 0.3rem 0.8rem; border-radius: 999px;
+  font-size: 0.78rem; font-weight: 700; letter-spacing: 0.02em;
+  background: rgba(242, 165, 89, 0.14); border: 1px solid rgba(242, 165, 89, 0.4); color: var(--accent-soft);
+}
+.today-badge.is-open:not([hidden]) { background: rgba(78, 207, 138, 0.14); border-color: rgba(78, 207, 138, 0.4); color: var(--open); }
+.today-badge.is-delayed:not([hidden]) { background: rgba(242, 165, 89, 0.14); border-color: rgba(242, 165, 89, 0.4); color: var(--delayed); }
+.today-badge.is-muted:not([hidden]) { background: rgba(255, 255, 255, 0.05); border-color: var(--border); color: var(--muted); font-weight: 600; }
+
+.hero-stat:not([hidden]) {
+  display: inline-flex; margin: 1.1rem 0 0; padding: 0.45rem 0.95rem;
+  font-size: 0.85rem; font-weight: 600; color: var(--accent-soft);
+  background: rgba(242, 165, 89, 0.12); border: 1px solid rgba(242, 165, 89, 0.35);
+  border-radius: 999px;
+}
+
+/* ============================= HERO SEARCH (Fáze 11 - "Where? / Search
+   within / Find my sunset") - stejný card-like tmavý povrch jako zbytek
+   UI (--surface), žádný nový vizuální jazyk, jen nová funkční sekce
+   uvnitř existujícího hero. ============================= */
+/* Redesign - "command card" dostal skutečnou hloubku (stín + jemná
+   sunset hairline nahoře) místo ploché karty bez separace od pozadí -
+   stejná "decentní hloubka" filozofie jako `.btn-primary`, žádné nové
+   sklo/blur navíc (zadání "vyhni se nadměrnému množství skleněných
+   efektů"). */
+.hero-search {
+  position: relative;
+  max-width: 31rem; margin: 2.25rem auto 0; padding: 1.5rem 1.6rem 1.75rem;
+  background: var(--surface); border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px; text-align: left;
+  box-shadow: 0 20px 50px -20px rgba(0, 0, 0, 0.55);
+}
+.hero-search::before {
+  content: "";
+  position: absolute;
+  top: -1px; left: 10%; right: 10%; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent-strong), transparent);
+  border-radius: 999px;
+  opacity: 0.8;
+}
+.hero-search-row { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 0.9rem; }
+.hero-search-row label { flex: 0 0 auto; font-size: 0.8rem; font-weight: 700; color: var(--muted); width: 6.2rem; }
+#search-where {
+  flex: 1 1 auto; min-width: 0; background: var(--surface-2); border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px; padding: 0.65rem 0.9rem; color: var(--text); font-size: 0.95rem;
+  transition: border-color 0.15s ease;
+}
+#search-where:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+#search-where:hover { border-color: rgba(255, 255, 255, 0.22); }
+#search-radius { flex: 1 1 auto; accent-color: var(--accent); }
+.hero-search-radius-value { flex: 0 0 auto; font-weight: 700; color: var(--accent-soft); font-size: 0.9rem; min-width: 3.6rem; text-align: right; }
+.hero-search > .btn-primary { width: 100%; }
+.hero-search-status:not([hidden]) { margin: 0.75rem 0 0; font-size: 0.85rem; color: var(--muted); }
+.hero-search-status .step-done { color: var(--open); }
+.hero-search-error:not([hidden]) { margin: 0.75rem 0 0; font-size: 0.85rem; color: var(--blocked); }
+@media (max-width: 640px) {
+  .hero-search-row { flex-wrap: wrap; }
+  .hero-search-row label { width: auto; }
+}
+
+/* ============================= Milestone "Complete Product Build" -
+   preferences, sunset type badge, user match, score breakdown - žádný
+   nový vizuální jazyk, jen rozšíření existujících pill/chip/detail
+   vzorů (filter-chip, section-eyebrow, details) na nová data. ========== */
+.link-btn {
+  background: none; border: none; color: var(--accent-soft); font-size: 0.85rem; font-weight: 600;
+  padding: 0.5rem 0; cursor: pointer; text-align: left;
+}
+.link-btn:hover { color: var(--accent); }
+.hero-preferences:not([hidden]) { margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
+.pref-group { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.65rem; }
+.pref-group-label { font-size: 0.78rem; font-weight: 700; color: var(--muted); width: 5.5rem; flex: 0 0 auto; }
+/* BUG NALEZENÝ (Milník 12, delší labely jako "Vivid colors"/"Sun on
+   horizon") - bez `white-space: nowrap` + `flex: 0 0 auto` se text
+   ohýbal UVNITŘ pilulky (ošklivě vysoká/úzká pilulka), místo aby se
+   celá pilulka přesunula na další řádek v `flex-wrap` skupině. */
+.pref-chip {
+  display: inline-flex; align-items: center; gap: 0.35rem; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 999px; padding: 0.3rem 0.75rem; font-size: 0.8rem; color: var(--text); cursor: pointer;
+  white-space: nowrap; flex: 0 0 auto;
+}
+.pref-chip:has(input:checked) { background: var(--accent); color: #1a1300; border-color: var(--accent); }
+.pref-chip-unsupported { opacity: 0.45; cursor: not-allowed; }
+/* Milník "Postupné vylepšení" (Fáze 3 - preference) - jedna nenápadná
+   rychlá volba PŘED rozklikutím "What are you looking for?" (zadání
+   "malé, srozumitelné, vizuálně nenápadné... nepřidávej rozsáhlý
+   systém nastavení") - znovupoužívá STEJNÝ `.pref-chip` vizuál a
+   STEJNÝ existující `scene_types`/`compute_user_match()` systém
+   (app/personalization.py, beze změny), jen zaškrtne Mountain+Forest
+   za uživatele (viz static/app.js `pref-natural-quick` listener). */
+/* Milník 12 (zadání bod 4) - rozšířeno ze single-chip na ŘÁDEK čtyř
+   rychlých preferencí (zadání "více preferencí najednou... jednoduché a
+   přirozené, ne dlouhý formulář"). `.pref-quick-row` (blokový flex
+   kontejner) teď sám řeší zalomení/oddělení od `#preferences-toggle-btn`
+   (ten je sourozenec kontejneru, ne jednotlivého chipu) - PŮVODNÍ bug
+   (chip kolidující s tlačítkem, viz historie) se tak už nemůže opakovat,
+   `.pref-chip-quick` se může vrátit k normálnímu `inline-flex` chipu.
+   Velikost zůstává stejně malá jako po předchozí opravě ("to políčko je
+   moc velké"). */
+.pref-quick-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.6rem 0 0.3rem; }
+.pref-chip-quick {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.74rem;
+  padding: 0.22rem 0.65rem;
+}
+.pref-chip-quick input { width: 0.85rem; height: 0.85rem; margin: 0; accent-color: var(--accent); }
+#pref-hiking-effort {
+  background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+  padding: 0.35rem 0.6rem; font-size: 0.85rem;
+}
+.sunset-type-badge:not([hidden]) {
+  display: inline-block; margin: 0.4rem 0 0.75rem; padding: 0.3rem 0.85rem; border-radius: 999px;
+  background: rgba(242, 165, 89, 0.14); border: 1px solid rgba(242, 165, 89, 0.4); color: var(--accent-soft);
+  font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+}
+/* Milník 12 (zadání bod 3) - inverze/mlha badge na detailu místa (viz
+   static/place.js renderHero) znovupoužívá STEJNÝ open/delayed
+   barevný jazyk jako `.today-badge` na Tonight stránce, ne novou barvu. */
+.sunset-type-badge.is-open:not([hidden]) { background: rgba(78, 207, 138, 0.14); border-color: rgba(78, 207, 138, 0.4); color: var(--open); }
+.sunset-type-badge.is-delayed:not([hidden]) { background: rgba(242, 165, 89, 0.14); border-color: rgba(242, 165, 89, 0.4); color: var(--delayed); }
+.user-match-badge:not([hidden]) {
+  margin: 0.5rem 0 0; font-size: 0.78rem; font-weight: 700; color: var(--open); text-align: center;
+}
+.score-breakdown { margin-top: 1.5rem; }
+.score-breakdown summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; font-weight: 600; }
+.score-breakdown-list { display: grid; grid-template-columns: 1fr auto; gap: 0.4rem 1rem; margin-top: 0.75rem; font-size: 0.85rem; }
+.score-breakdown-list dt { color: var(--muted); }
+.score-breakdown-list dd { margin: 0; font-weight: 700; text-align: right; }
+.score-breakdown-list dd.is-unavailable { color: var(--muted); font-weight: 400; font-style: italic; }
+
+/* ============================= IKONOVÝ SYSTÉM (Fáze 9) =============================
+   Zadání bod 18 - "nepoužívej emoji jako hlavní UI grafiku". Vlastní
+   tenké line-style SVG ikony přes CSS `mask` (dědí `currentColor`,
+   ostré na retina, žádný externí request/knihovna). Emoji zůstává jen
+   v drobných textových detailech (legendy, tlačítka), ne v hlavních
+   statistikách/hero. */
+.icon {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  background-color: currentColor;
+  vertical-align: -0.15em;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  flex-shrink: 0;
+}
+.icon-pin {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 21s-7-7.5-7-12a7 7 0 0 1 14 0c0 4.5-7 12-7 12z'/%3E%3Ccircle cx='12' cy='9' r='2.3'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 21s-7-7.5-7-12a7 7 0 0 1 14 0c0 4.5-7 12-7 12z'/%3E%3Ccircle cx='12' cy='9' r='2.3'/%3E%3C/svg%3E");
+}
+.icon-sunset {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='13' r='4'/%3E%3Cline x1='2' y1='18' x2='22' y2='18'/%3E%3Cline x1='12' y1='3' x2='12' y2='5'/%3E%3Cline x1='4' y1='7' x2='5.5' y2='8.5'/%3E%3Cline x1='20' y1='7' x2='18.5' y2='8.5'/%3E%3Cline x1='1' y1='13' x2='3.5' y2='13'/%3E%3Cline x1='20.5' y1='13' x2='23' y2='13'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='13' r='4'/%3E%3Cline x1='2' y1='18' x2='22' y2='18'/%3E%3Cline x1='12' y1='3' x2='12' y2='5'/%3E%3Cline x1='4' y1='7' x2='5.5' y2='8.5'/%3E%3Cline x1='20' y1='7' x2='18.5' y2='8.5'/%3E%3Cline x1='1' y1='13' x2='3.5' y2='13'/%3E%3Cline x1='20.5' y1='13' x2='23' y2='13'/%3E%3C/svg%3E");
+}
+.icon-compass {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpolygon points='14.5,9.5 12,15.5 9.5,14.5 12,8.5' fill='white' stroke='none'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpolygon points='14.5,9.5 12,15.5 9.5,14.5 12,8.5' fill='white' stroke='none'/%3E%3C/svg%3E");
+}
+.icon-clock {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cline x1='12' y1='12' x2='12' y2='7'/%3E%3Cline x1='12' y1='12' x2='15.5' y2='14'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cline x1='12' y1='12' x2='12' y2='7'/%3E%3Cline x1='12' y1='12' x2='15.5' y2='14'/%3E%3C/svg%3E");
+}
+.icon-mountain {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='white' d='M3 19 L9 8.5 L12.5 14 L15.5 9.5 L21 19 Z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='white' d='M3 19 L9 8.5 L12.5 14 L15.5 9.5 L21 19 Z'/%3E%3C/svg%3E");
+}
+.icon-peak {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 19 L10 6 L14 13 L17 8 L21 19'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 19 L10 6 L14 13 L17 8 L21 19'/%3E%3C/svg%3E");
+}
+.icon-viewpoint {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 12 C2 12 7 5 12 5 C17 5 22 12 22 12 C22 12 17 19 12 19 C7 19 2 12 2 12 Z'/%3E%3Ccircle cx='12' cy='12' r='2.3' fill='white' stroke='none'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 12 C2 12 7 5 12 5 C17 5 22 12 22 12 C22 12 17 19 12 19 C7 19 2 12 2 12 Z'/%3E%3Ccircle cx='12' cy='12' r='2.3' fill='white' stroke='none'/%3E%3C/svg%3E");
+}
+/* Milník "Postupné vylepšení" (Fáze 4 - ikony typů vyhlídek, doladěno
+   po zpětné vazbě "nelíbí se mi ty ikony") - tenký line-art styl,
+   STEJNÁ vizuální rodina jako existující `.icon-hike`/`.icon-pin`/
+   `.icon-compass` (stroke, ne plná výplň) - PŮVODNÍ verze těchto pěti
+   ikon (plné geometrické siluety kopírující tvary mapových markerů)
+   vizuálně nesedí k jemnějším ikonám jinde v appce. `candidate_type` je
+   v katalogu jen pro peak/viewpoint/castle/tower/hill (ověřeno přímo v
+   datech, zadání "nevymýšlej typ podle názvu") - neznámý/chybějící typ
+   používá neutrální `.icon-pin`, ne vymyšlený tvar. */
+.icon-tower {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2 L6 22 M12 2 L18 22 M8.2 13 L15.8 13 M6.8 18 L17.2 18'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2 L6 22 M12 2 L18 22 M8.2 13 L15.8 13 M6.8 18 L17.2 18'/%3E%3C/svg%3E");
+}
+.icon-castle {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 21 V11 H7 V8 H10 V11 H14 V8 H17 V11 H20 V21 Z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 21 V11 H7 V8 H10 V11 H14 V8 H17 V11 H20 V21 Z'/%3E%3C/svg%3E");
+}
+.icon-hill {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 19 Q12 7 22 19'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 19 Q12 7 22 19'/%3E%3C/svg%3E");
+}
+/* Milestone "Complete Product Build" - dvě nové ikony pro weather/hike
+   statistiky (zadání bod 19), stejný line-style mask systém jako výše. */
+.icon-cloud {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6.5 19a4.5 4.5 0 0 1-.5-8.98A5.5 5.5 0 0 1 16.6 8.5 4.5 4.5 0 0 1 17.5 19h-11z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6.5 19a4.5 4.5 0 0 1-.5-8.98A5.5 5.5 0 0 1 16.6 8.5 4.5 4.5 0 0 1 17.5 19h-11z'/%3E%3C/svg%3E");
+}
+.icon-hike {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 20 L9 10 L12 15 L15 9 L20 20'/%3E%3Ccircle cx='15' cy='5' r='2' fill='white' stroke='none'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 20 L9 10 L12 15 L15 9 L20 20'/%3E%3Ccircle cx='15' cy='5' r='2' fill='white' stroke='none'/%3E%3C/svg%3E");
+}
+.icon-close {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round'%3E%3Cline x1='5' y1='5' x2='19' y2='19'/%3E%3Cline x1='19' y1='5' x2='5' y2='19'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round'%3E%3Cline x1='5' y1='5' x2='19' y2='19'/%3E%3Cline x1='19' y1='5' x2='5' y2='19'/%3E%3C/svg%3E");
+}
+.icon-menu {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round'%3E%3Cline x1='4' y1='7' x2='20' y2='7'/%3E%3Cline x1='4' y1='12' x2='20' y2='12'/%3E%3Cline x1='4' y1='17' x2='20' y2='17'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round'%3E%3Cline x1='4' y1='7' x2='20' y2='7'/%3E%3Cline x1='4' y1='12' x2='20' y2='12'/%3E%3Cline x1='4' y1='17' x2='20' y2='17'/%3E%3C/svg%3E");
+}
+/* Fáze 5 (GPS souřadnice + kopírování) - stejný line-art styl jako
+   ostatní ikony výše (`.icon-hike` apod.). */
+.icon-copy {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='12' height='12' rx='2'/%3E%3Cpath d='M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='12' height='12' rx='2'/%3E%3Cpath d='M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1'/%3E%3C/svg%3E");
+}
+
+/* ============================= STATUS BANNERS ============================= */
+#loading, #error {
+  max-width: 480px;
+  margin: 0 auto 2rem;
+  border-radius: 10px;
+}
+#loading:not([hidden]) {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--muted);
+  padding: 0.85rem 1rem;
+  background: var(--panel-translucent);
+  border: 1px solid var(--border);
+}
+.spinner {
+  width: 18px; height: 18px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.error-box {
+  background: #341318;
+  border: 1px solid var(--blocked);
+  color: #ffb3b6;
+  padding: 1rem;
+  white-space: pre-line;
+}
+
+/* ============================= SECTIONS (shared) ============================= */
+/* BUG NALEZENÝ (Fáze 11 browser test) - sticky `#site-header` (65px,
+   poloprůhledný + `backdrop-filter: blur`) překrýval horní okraj
+   sekce po `scrollIntoView({block:"start"})` (Find my sunset, klik na
+   marker/kartu) - nadpis pak byl vizuálně "rozmazaný"/nečitelný pod
+   headerem. `scroll-margin-top` nechá scroll zastavit s dostatečnou
+   rezervou, aniž by se cokoliv posouvalo/redesignovalo. */
+main > section { padding: 3rem 0; scroll-margin-top: 80px; }
+
+/* Fáze 9, zadání bod 5/27 - jemný scroll-reveal (ne velký efekt, jen
+   fade + drobný posun) - `prefers-reduced-motion` už globálně zkracuje
+   všechny transitions na 0.01ms (viz @media pravidlo výše), takže se
+   tenhle efekt tam automaticky vypne beze změny JS.
+   AUDIT NÁLEZ: `main > section:not(#hero)` má specificitu ID selektoru
+   (kvůli `#hero` uvnitř `:not()`) a porazilo by `.is-visible` (třídní
+   specificita) bez ohledu na pořadí - stejná chyba jako dřív u
+   `[hidden]`/ID specificity. Řešeno čistě třídním párem selektorů. */
+main > section.reveal-pending {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+main > section.reveal-pending.is-visible { opacity: 1; transform: none; }
+main > section h2 { font-size: 1.7rem; margin: 0 0 0.5rem; }
+#technical-section { padding-top: 1.5rem; }
+
+/* ============================= BEST SUNSET ============================= */
+#best-title { font-size: clamp(1.8rem, 4vw, 2.6rem); }
+
+/* Milník "Vizuální sjednocení" - AUDIT NÁLEZ (skutečný browser test):
+   `.best-grid` používá i `#place-hero-grid` (toggluje se `hidden` v
+   place.js) - stejná třída chyby jako `.place-status` výše
+   (`[hidden]`/třídní specificita, viz komentář u `main > section.reveal-pending`). */
+.best-grid:not([hidden]) {
+  display: flex;
+  gap: 2.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 1.5rem 0 2rem;
+}
+/* Milník 12 ("Corona Bloom") - `.rating-ring`/`.ring-bg`/`.ring-fill`/
+   `.rating-ring-label`/`.rating-ring-number` (ploché kolečko s číslem
+   vedle) nahrazeny jedním dynamickým SVG (`coronaBloomSvg()`, viz
+   static/sunset_viz.js) - kontejner teď jen centruje vykreslenou
+   velikost a drží popisek pod ním. */
+.rating-ring-wrap { position: relative; width: 160px; display: flex; flex-direction: column; align-items: center; flex-shrink: 0; }
+.corona-bloom-hero { width: 160px; height: 160px; display: flex; align-items: center; justify-content: center; }
+.corona-bloom-hero svg { display: block; }
+.rating-ring-caption { font-size: 0.62rem; letter-spacing: 0.1em; color: var(--muted); margin-top: 0.5rem; text-align: center; }
+
+.best-info { flex: 1; min-width: 260px; }
+.rating-desc { font-size: 1.2rem; font-weight: 700; margin-bottom: 0.4rem; }
+
+.best-stats { display: flex; flex-wrap: wrap; gap: 0.9rem 1.6rem; margin: 0.9rem 0 1.4rem; }
+.stat { font-size: 0.95rem; color: var(--text); display: flex; align-items: center; gap: 0.4rem; }
+.stat .icon { color: var(--accent); }
+
+.cta-row { display: flex; gap: 0.8rem; flex-wrap: wrap; }
+
+.why-block h3 { font-size: 1.05rem; margin: 0 0 0.8rem; }
+.why-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 0.6rem 1.5rem; }
+.why-list li { font-size: 0.92rem; color: var(--text); display: flex; align-items: flex-start; gap: 0.5rem; }
+.why-list li::before { content: "✓"; color: var(--open); font-weight: 700; flex-shrink: 0; }
+.why-list li.why-negative::before { content: "•"; color: var(--blocked); }
+
+/* ============================= PANORAMA ============================= */
+.panorama-wrap {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  cursor: grab;
+  touch-action: none;
+  margin-top: 1.25rem;
+}
+.panorama-wrap:active { cursor: grabbing; }
+#panorama-canvas { display: block; width: 100%; height: auto; }
+.panorama-recenter-btn {
+  position: absolute;
+  bottom: 0.9rem;
+  right: 0.9rem;
+  background: rgba(15, 18, 26, 0.75);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.5rem 1rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  backdrop-filter: blur(6px);
+}
+.panorama-recenter-btn:hover { background: rgba(15, 18, 26, 0.92); }
+
+/* ============================= OTHER SUNSETS ============================= */
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 1.25rem;
+  margin-top: 1.5rem;
+}
+/* Redesign "do it again, better" - karty dřív byly ploché jednotné
+   boxy bez hierarchie podle VÝSLEDKU. `--card-accent` (nastaveno v JS
+   PŘÍMO z už existující `ratingBand()` barvy - žádný nový scoring, jen
+   vizuální mapování existujících dat) dává každé kartě tenký barevný
+   proužek nahoře = okamžitá orientace "tohle je dobré/průměrné místo"
+   ještě než oko dočte číslo. Čekající/neohodnocené karty nemají
+   `--card-accent` nastavené -> padne na neutrální `--border` (viz
+   fallback), takže nikdy nevypadají jako "špatné místo" (stejné
+   pravidlo jako dřív). */
+.sunset-card {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 40%), var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1.3rem 1.25rem 1.25rem;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.sunset-card::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--card-accent, var(--border));
+}
+/* Milník "Postupné vylepšení" (Fáze 1) - jemný stín na hoveru místo jen
+   posunu/barvy okraje - stejná "decentní hloubka" filozofie jako
+   `.btn-primary` výše, ne nový vizuální jazyk. */
+.sunset-card:hover { transform: translateY(-4px); border-color: rgba(255, 255, 255, 0.18); box-shadow: 0 16px 32px -12px rgba(0, 0, 0, 0.5); }
+/* Redesign - ikona teď sedí ve vlastní kruhové "chipce" s tónovaným
+   pozadím místo holé glyfy volně na kartě - stejný vizuální jazyk jako
+   `.today-badge`/`.card-type-badge` pill komponenty jinde v appce, ne
+   nový motiv navíc. */
+.sunset-card .card-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 2.15rem; height: 2.15rem; border-radius: 50%;
+  background: rgba(242, 165, 89, 0.12);
+}
+/* Milník "Postupné vylepšení" (Fáze 4) - `.card-icon` dřív vždy nesl
+   stejné dekorativní 🌅 emoji (žádná informace navíc) - teď nese
+   skutečnou typovou ikonu (peak/viewpoint/tower/castle/hill, nebo
+   neutrální pin u neznámého typu). Stejná barevná konvence jako
+   `.stat .icon` výše (teplý akcent, jen pro funkční ikony). */
+.sunset-card .card-icon .icon { color: var(--accent); width: 1.1em; height: 1.1em; }
+.sunset-card h3 { font-size: 1.1rem; font-weight: 600; margin: 0.65rem 0 0.1rem; }
+/* Milník 12 ("Corona Bloom") - dřív holé barevné číslo, teď meter (viz
+   coronaBloomSvg() volání v app.js buildReadySunsetCard()/loadOtherSunsets()). */
+.sunset-card .card-score { display: flex; justify-content: center; margin: 0.5rem 0; }
+.sunset-card .card-score svg { display: block; }
+.sunset-card .card-label { font-size: 0.82rem; color: var(--muted); margin-bottom: 0.6rem; }
+.sunset-card .card-meta { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.8rem; }
+.sunset-card .card-type-badge {
+  display: inline-block; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+  color: var(--accent-soft); background: rgba(242, 165, 89, 0.14); border-radius: 999px; padding: 0.15rem 0.55rem; margin-bottom: 0.4rem;
+}
+.sunset-card .card-match-badge { font-size: 0.75rem; font-weight: 700; color: var(--open); margin-bottom: 0.4rem; }
+.sunset-card button { width: 100%; }
+.sunset-card.is-loading { opacity: 0.5; }
+.sunset-card.is-current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+/* Milestone "Visible Waiting Candidates" - kandidát BEZ skóre (čeká,
+   selhal, nebo je nad stropem analýzy) nesmí vypadat jako "špatné
+   místo" (zadání bod "neohodnocená místa nesmějí působit jako špatná
+   místa") - žádná červená/nízká barva, jen neutrální tlumený stav
+   místo velkého čísla skóre. */
+.sunset-card.is-waiting { opacity: 0.72; }
+.sunset-card .card-wait-status {
+  font-size: 0.82rem; font-weight: 700; color: var(--muted); margin: 0.3rem 0 0.6rem;
+  display: inline-flex; align-items: center; gap: 0.4rem;
+}
+.sunset-card .card-wait-status::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); display: inline-block;
+}
+.sunset-card.is-waiting-pending .card-wait-status::before { background: var(--accent-soft); animation: wait-pulse 1.6s ease-in-out infinite; }
+@keyframes wait-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* ============================= EXPLORE MAP ============================= */
+/* Fáze 9, zadání bod 21 - minimalistické filter chips (ne dashboard) -
+   filtrují VIDITELNOST candidate markerů na mapě, žádný nový request.
+   Milník "Vizuální sjednocení" - AUDIT NÁLEZ (skutečný browser test):
+   `#type-filter-chips`/`#explore-filter-chips` zůstávaly viditelné i
+   po nastavení `hidden = true` (stejná třída chyby jako `.place-status`
+   a `.best-grid` výše) - ověřeno přímo v prohlížeči (computed
+   `display: flex` i s `hidden` atributem nastaveným). */
+.filter-chips:not([hidden]) { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1.25rem; }
+.filter-chip {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.4rem 1rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.filter-chip:hover { color: var(--text); border-color: var(--muted); }
+.filter-chip.is-active { background: var(--accent); color: #1a1300; border-color: var(--accent); }
+
+/* Milestone "Sunset-first UI and Minimalist Map Redesign" - mapa je na
+   hlavní stránce VÝSLOVNĚ sekundární ("kde to je a co je poblíž", ne
+   hlavní způsob objevení doporučení, zadání bod 1C) - kompaktní výchozí
+   výška (dřív `min(70vh, 620px)`, srovnatelná s hero/best-sunset, teď
+   jasně menší než hlavní doporučení) + `#map-expand-btn` pro rozšíření
+   na vyžádání (`.is-expanded`), ne natvrdo velká mapa. */
+#map-frame {
+  position: relative;
+  height: min(42vh, 360px);
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  margin-top: 1.25rem;
+  transition: height 0.2s ease;
+}
+#map-frame.is-expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  margin-top: 0;
+}
+#map { position: absolute; inset: 0; }
+
+#map-expand-btn {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 10;
+  background: var(--panel-translucent);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+#map-expand-btn:hover { background: rgba(255, 255, 255, 0.1); }
+/* "Zpět na doporučení" - jasný, vždy viditelný návrat (zadání bod 1C -
+   "pokud rozšíření mapy zabere celou plochu, musí existovat jasný
+   návrat k doporučením"), ne jen jiný label stejného tlačítka. */
+#map-frame.is-expanded #map-expand-btn {
+  top: 1rem;
+  left: 1rem;
+  right: auto;
+  background: var(--accent);
+  color: #1a1300;
+  border-color: var(--accent);
+}
+
+/* Jemná, obrazovkově ukotvená "sunset atmosphere" - jen uvnitř mapového
+   rámu (ne přes celou stránku), west=teplý/east=chladnější jako
+   zjednodušená stylistická aproximace (viz README - dekorace, ne fyzika).
+   `soft-light` blend + nízká opacita, aby terén a popisky zůstaly čitelné. */
+#sunset-atmosphere {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    rgba(255, 176, 102, 0.16) 0%,
+    rgba(180, 110, 90, 0.06) 35%,
+    rgba(40, 35, 70, 0.05) 65%,
+    rgba(20, 20, 45, 0.14) 100%
+  );
+  mix-blend-mode: soft-light;
+}
+.sun-glyph { font-size: 1.4rem; filter: drop-shadow(0 0 6px rgba(255, 176, 102, 0.8)); }
+
+/* --- Candidate markery (Fáze 8/9, zadání bod 11/12/19/20) - vlastní
+   vizuální jazyk podle TYPU místa (zadání bod 12/13): vrchol = špička
+   (trojúhelníkový clip-path), vyhlídka = diamant, jinak kruh. Barva
+   pásma (open/delayed/blocked) zůstává stejná sémantika jako zbytek
+   appky. Vítěz žebříčku (`is-best`) je vizuálně výraznější (větší,
+   zlatý okraj + halo) - žádné hromadění desítek ikon/clusterů, jen
+   čisté geometrické tvary s číslem ratingu. --- */
+/* Fáze 10 (zadání bod 7/9) - vlastní hover tooltip místo pomalého
+   nativního `title` - "objeví se název, zobrazí se rating" při hoveru. */
+.candidate-marker-wrap { position: relative; display: flex; justify-content: center; }
+/* Fáze 10 (druhé kolo, zadání bod 9) - "malý floating detail", ne
+   obrovská karta: typ / jméno / elevace / velké číslo ratingu / skutečný
+   sunset směr / textová výzva. Objeví se na hover, klik na marker samotný
+   provede "Explore" (žádné vnořené tlačítko v malém popoveru). */
+.marker-tooltip {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background: var(--panel-translucent);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.05rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 20;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+}
+.marker-tooltip-type { color: var(--muted); font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.08em; }
+.marker-tooltip strong { color: var(--text); font-size: 0.92rem; margin: 0.1rem 0 0.2rem; }
+.marker-tooltip-elevation { color: var(--muted); margin-bottom: 0.35rem; }
+.marker-tooltip-rating { font-family: var(--font-display); color: var(--accent-soft); font-size: 1.6rem; font-weight: 600; line-height: 1; }
+.marker-tooltip-rating span { font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+.marker-tooltip-sunset { color: var(--muted); margin-top: 0.3rem; }
+.marker-tooltip-cta { color: var(--accent); font-weight: 700; margin-top: 0.4rem; font-size: 0.7rem; }
+.candidate-marker-wrap:hover .marker-tooltip { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+.candidate-marker {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #0d1015;
+  border: 2px solid rgba(16, 20, 31, 0.6);
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  transition: scale 0.15s ease;
+}
+.candidate-marker:hover { scale: 1.15; }
+.candidate-marker.type-peak { clip-path: polygon(50% 0%, 100% 100%, 0% 100%); padding-top: 6px; }
+.candidate-marker.type-viewpoint { border-radius: 6px; rotate: 45deg; }
+.candidate-marker.type-viewpoint span { display: inline-block; rotate: -45deg; }
+/* Fáze 11 (zadání bod M) - rozhledna dostává vlastní tvar ("věž" -
+   pětiúhelník se špičatou střechou), aby šla na mapě odlišit od kruhu
+   (vyhlídka/kopec bez rozpoznaného tvaru) i od trojúhelníku (peak). */
+.candidate-marker.type-tower { clip-path: polygon(50% 0%, 100% 35%, 100% 100%, 0% 100%, 0% 35%); padding-top: 4px; }
+/* Milestone "Data Foundation" - hrad/zámek dostává vlastní tvar
+   ("hradba" s cimbuřím) - odlišný od kruhu/trojúhelníku/kosočtverce/
+   věže výše, stejný duch jako existující typové tvary. */
+.candidate-marker.type-castle {
+  clip-path: polygon(0% 100%, 0% 40%, 20% 40%, 20% 20%, 40% 20%, 40% 40%, 60% 40%, 60% 20%, 80% 20%, 80% 40%, 100% 40%, 100% 100%);
+  padding-top: 10px;
+}
+/* Milník 12 ("Corona Bloom") - barva markeru se teď nastavuje přímo
+   inline stylem z `coronaBloomAccentColor()` (static/app.js/explore.js),
+   ne přes tuhle starou open/delayed/blocked třídu. */
+/* Zpětná vazba (živé použití) - "ukázat víc na mapě" - kandidáti BEZE
+   SKÓRE (čekají/vyhodnocují se/jsou nad stropem analýzy) se teď taky
+   vykreslí, ale jako malá tlumená tečka bez čísla (žádné vymyšlené
+   skóre - stejné pravidlo jako `.sunset-card.is-waiting`), aby mapa
+   ukazovala skutečný rozsah nalezených míst, ne jen těch pár hotových. */
+.candidate-marker.is-waiting {
+  width: 12px;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: none;
+}
+.candidate-marker.is-waiting:hover { scale: 1.4; background: rgba(255, 255, 255, 0.55); }
+.candidate-marker.is-best {
+  width: 38px;
+  height: 38px;
+  font-size: 0.85rem;
+  border: 3px solid var(--accent-soft);
+  animation: best-pulse 2.4s ease-in-out infinite;
+}
+@keyframes best-pulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(255, 217, 160, 0.25), 0 2px 8px rgba(0, 0, 0, 0.4); }
+  50% { box-shadow: 0 0 0 9px rgba(255, 217, 160, 0.12), 0 2px 8px rgba(0, 0, 0, 0.4); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .candidate-marker.is-best { animation: none; }
+}
+
+/* ============================= TECHNICAL DETAILS ============================= */
+#technical-details {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+#technical-details > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  list-style: none;
+}
+#technical-details > summary::-webkit-details-marker { display: none; }
+#technical-details > summary::before { content: "▸ "; }
+#technical-details[open] > summary::before { content: "▾ "; }
+#horizon-panel { margin-top: 1.5rem; }
+#horizon-panel h3 { font-size: 1rem; margin: 1.5rem 0 0.6rem; }
+#horizon-panel h3:first-child { margin-top: 0; }
+
+.chart-wrap { display: flex; justify-content: center; }
+canvas { max-width: 100%; height: auto; }
+
+.details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.6rem 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem;
+  margin: 0 0 1rem;
+}
+.details-grid dt { color: var(--muted); font-size: 0.75rem; grid-row: 1; }
+.details-grid dd { margin: 0 0 0.7rem; font-size: 0.9rem; }
+
+#warnings-list { color: var(--delayed); font-size: 0.85rem; }
+
+details {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+summary { color: var(--muted); }
+pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.75rem;
+  max-height: 300px;
+  overflow: auto;
+}
+
+/* ============================= "Use my current location" (first search choice) ============================= */
+.use-location-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-bottom: 0.6rem; }
+.or-divider {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin: 0 0 0.9rem;
+  position: relative;
+}
+
+/* ============================= NAV (active state) ============================= */
+.nav-link.is-active { color: var(--text); border-bottom: 2px solid var(--accent); padding-bottom: 0.15rem; }
+
+/* ============================= CARDS (place page link) ============================= */
+.card-actions { display: flex; flex-direction: column; gap: 0.4rem; }
+.card-link {
+  text-align: center;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.card-link:hover { border-color: var(--accent); }
+
+/* ============================= PLACE PAGE (`/sunset/{slug}/`) ============================= */
+.place-main { position: relative; padding-top: 1.5rem; z-index: 0; }
+
+/* Milník 12 (zadání bod 1 - "sjednocená gradientová obloha bez ostrého
+   barevného řezu") - `#place-hero` dostává STEJNÝ `.sky-panel` gradient
+   jako Tonight `#hero` (nahrazuje dřívější `.place-main::before`
+   radial-glow plochu nezávislou na datech konkrétního místa). Vlastní
+   kopie `--sky-sun-*`/`--sky-haze-*` proměnných (duplicitní s `#hero`,
+   ale JEDNODUCHÉ a bezpečné - place.js je nezávislá stránka, viz
+   zdůvodnění nahoře u `.sky-mood-*`) - `applySkyMoodClass()`
+   (static/sunset_viz.js) je přetónuje podle SKUTEČNÉHO
+   `tonight.color_potential.key` pro tohle konkrétní místo. */
+#place-hero {
+  position: relative;
+  margin: 0 -1.25rem;
+  padding: 2rem 1.25rem 1.5rem;
+  overflow: hidden;
+  /* stejná výška jako `.sky-panel::before` (viz níž) - jinak by krátký
+     obsah (ještě bez `#place-hero-grid`, jen název/typ) `::before`
+     uřezal uprostřed gradientu = PŘESNĚ ten ostrý řez, který má zadání
+     bod 1 odstranit. */
+  min-height: clamp(190px, 34vw, 360px);
+  --sky-sun-1: #ffe8c2;
+  --sky-sun-2: #ffb066;
+  --sky-haze-2: #ff8f4d;
+}
+#place-hero.sky-mood-vivid { --sky-sun-1: #ffd9dd; --sky-sun-2: #ff6f91; --sky-haze-2: #ff4d6d; }
+#place-hero.sky-mood-muted { --sky-sun-1: #d7dbe4; --sky-sun-2: #9aa3b5; --sky-haze-2: #6b7485; }
+#place-hero > *:not(.sky-sun):not(.sky-horizon-line) { position: relative; z-index: 2; }
+.back-link {
+  display: inline-block;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+.back-link:hover { color: var(--text); }
+#place-hero h1 { font-size: clamp(1.9rem, 4.5vw, 3rem); margin: 0.35rem 0 0.15rem; }
+.place-sub { color: var(--muted); font-size: 0.95rem; }
+/* Fáze 5 (GPS souřadnice + kopírování) - malá, nenápadná řádka blízko
+   jména místa (zadání "poblíž názvu"). `flex-wrap` + `width: fit-content`
+   řádek drží kompaktní, ne na celou šířku karty, a na mobilu se text/
+   tlačítka přirozeně zalomí, místo aby rozbily layout. */
+.place-coords-row {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 0.9rem;
+  margin-top: 0.6rem; font-size: 0.82rem;
+}
+.place-coords-text { color: var(--muted); font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; user-select: all; }
+.place-coords-action {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  background: none; border: none; color: var(--accent-soft); font-weight: 600; font-size: 0.82rem;
+  padding: 0.55rem 0.1rem; margin: -0.55rem -0.1rem; cursor: pointer; text-decoration: none; font-family: inherit;
+}
+.place-coords-action:hover { color: var(--accent); }
+.place-coords-action .icon { width: 0.95em; height: 0.95em; }
+.place-coords-feedback:not([hidden]) { color: var(--open); font-weight: 600; font-size: 0.8rem; }
+.place-badges { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+.env-badge { background: rgba(94, 169, 230, 0.18); border-color: rgba(94, 169, 230, 0.4); color: #bcdcf7; }
+.place-status {
+  color: var(--muted);
+  padding: 0.85rem 1rem;
+  background: var(--panel-translucent);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-top: 1.5rem;
+  max-width: 640px;
+}
+/* Milník "Vizuální sjednocení" - AUDIT NÁLEZ (skutečný browser test):
+   `.place-status { display: flex }` mělo STEJNOU specificitu jako
+   `[hidden] { display: none }` z UA stylesheetu, ale jako POZDĚJŠÍ
+   autorské pravidlo vyhrálo - `#place-loading` zůstával viditelný i po
+   `hidden = true` (zůstal "Loading terrain analysis…" spinner nastálo
+   přes hotový obsah). Stejná chyba a stejná oprava jako `#loading`
+   výše (`:not([hidden])`) - `main > section.reveal-pending` komentář
+   ji dokumentuje jako už dřív nalezenou třídu chyb. */
+.place-status:not([hidden]) {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.place-access-text { color: var(--muted); font-size: 0.92rem; max-width: 64ch; line-height: 1.6; }
+
+.best-days-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.9rem;
+  margin-top: 1.25rem;
+}
+.best-day-card {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.1rem 0.9rem 1rem;
+  text-align: center;
+}
+.best-day-card::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--card-accent, var(--border));
+}
+.best-day-date { font-size: 0.78rem; color: var(--muted); text-transform: capitalize; }
+.best-day-score { font-family: var(--font-display); font-size: 1.8rem; font-weight: 600; margin: 0.3rem 0; }
+.best-day-score span { font-size: 0.9rem; font-weight: 600; color: var(--muted); }
+.best-day-time { font-size: 0.82rem; }
+.best-day-type { font-size: 0.78rem; color: var(--accent); margin-top: 0.2rem; }
+.best-day-clouds { font-size: 0.76rem; color: var(--muted); margin-top: 0.15rem; }
+.best-day-uncertainty {
+  font-size: 0.66rem; color: var(--muted); margin-top: 0.4rem; text-transform: uppercase; letter-spacing: 0.04em;
+  opacity: 0.75; cursor: help;
+}
+.tonight-forecast-caveat { margin-top: 0.3rem; }
+
+#place-map-frame {
+  position: relative;
+  height: min(55vh, 480px);
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  margin-top: 1.25rem;
+}
+#place-map { position: absolute; inset: 0; }
+
+/* ============================= EXPLORE PAGE (`/explore`) ============================= */
+.explore-body { overflow: hidden; height: 100vh; }
+.explore-main { max-width: none; padding: 0; height: calc(100vh - 65px); }
+#explore-layout { display: flex; height: 100%; }
+/* Redesign - jemná shora stékající radiální plocha (STEJNÝ recept jako
+   Tonight `#hero`/place `.place-main`) místo ploché `--surface` barvy -
+   Explore dřív vizuálně nepůsobil jako stejný produkt (čistě utilitární
+   panel), teď sdílí stejnou "sunset atmosféru" jen o poznání tlumenější
+   (sekundární, mapová obrazovka - zadání bod 8/1C). */
+#explore-panel {
+  position: relative;
+  width: 340px;
+  flex-shrink: 0;
+  padding: 1.4rem 1.25rem;
+  overflow-y: auto;
+  background: radial-gradient(ellipse 100% 40% at 50% 0%, rgba(255, 159, 82, 0.08), transparent 70%), var(--surface);
+  border-right: 1px solid var(--border);
+}
+.explore-search { margin-bottom: 1rem; }
+#explore-map-frame { position: relative; flex: 1 1 auto; }
+/* `explore-map-canvas`, NE `explore-map` - tenhle sdílený stylesheet
+   pokrývá i Tonight stránku, kde `#explore-map` je odjakživa ID celé
+   SEKCE (`main > section`), ne mapového divu (viz komentář výše u
+   `#best-sunset, #panorama-section, #other-sunsets, #explore-map`).
+   BUG NALEZENÝ živě (uživatelský report): stejné ID `#explore-map` tady
+   dřív omylem trhalo tu sekci na Tonight stránce z normálního toku
+   (`position: absolute`) a lepilo ji nahoru přes hero. */
+#explore-map-canvas { position: absolute; inset: 0; }
+
+.explore-results-list { display: flex; flex-direction: column; gap: 0.6rem; margin-top: 1.25rem; }
+/* Redesign - stejný "--card-accent proužek" jazyk jako `.sunset-card`
+   na Tonight/detailu, jen jako levý pruh místo horního (kompaktní
+   seznamový řádek, ne velká karta) - konzistentní vizuální systém pro
+   "tohle je výsledek se skóre X" napříč celou appkou (zadání bod 8 -
+   "mapa a výsledky musí tvořit jeden srozumitelný celek"). */
+.explore-result-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0.8rem 0.65rem 0.95rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.02);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.explore-result-card::before {
+  content: "";
+  position: absolute;
+  top: 0.5rem; bottom: 0.5rem; left: 0;
+  width: 3px; border-radius: 0 2px 2px 0;
+  background: var(--card-accent, var(--border));
+}
+.explore-result-card:hover { border-color: var(--muted); background: rgba(255, 255, 255, 0.045); }
+.explore-result-card.is-selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+/* Milník 12 ("Corona Bloom") - dřív holé číslo, teď malý meter (viz
+   coronaBloomSvg() volání v explore.js). */
+.explore-result-score { display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.explore-result-score svg { display: block; }
+.explore-result-info strong { font-size: 0.92rem; }
+.explore-result-best {
+  font-size: 0.62rem;
+  font-weight: 800;
+  color: #1a1300;
+  background: var(--accent);
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  margin-left: 0.3rem;
+}
+.explore-result-meta { font-size: 0.78rem; color: var(--muted); margin-top: 0.1rem; }
+
+/* Milestone "Visible Waiting Candidates" - kandidát bez platného
+   hodnocení v Explore seznamu (viz #explore-results-list) - stejný
+   princip jako .sunset-card.is-waiting: žádné skóre/barva, jen
+   neutrální stav, aby nepůsobil jako "špatné místo". */
+.explore-result-card.is-waiting { opacity: 0.68; cursor: default; }
+.explore-result-card.is-waiting:hover { border-color: var(--border); }
+.explore-result-wait-status { font-size: 0.78rem; font-weight: 700; color: var(--muted); width: 2.4rem; flex-shrink: 0; text-align: center; }
+
+.candidate-marker-wrap.is-selected .candidate-marker { outline: 2px solid #fff; outline-offset: 2px; }
+
+.explore-preview {
+  position: absolute;
+  bottom: 1rem;
+  left: 1rem;
+  right: 1rem;
+  max-width: 420px;
+  background: var(--panel-translucent);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1.1rem 1.25rem;
+  z-index: 10;
+}
+.explore-preview-close {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  width: 1.8rem;
+  height: 1.8rem;
+}
+.explore-preview-body h3 { margin: 0.2rem 0 0.4rem; font-size: 1.2rem; }
+/* Milník 12 ("Corona Bloom") - dřív holé číslo+label vedle sebe, teď
+   meter + label (viz coronaBloomSvg() volání v explore.js renderPreview()). */
+.explore-preview-score-row { display: flex; align-items: center; gap: 0.75rem; margin: 0.5rem 0; }
+.explore-preview-score-row svg { display: block; flex-shrink: 0; }
+.explore-preview-score-label { font-size: 0.9rem; font-weight: 600; color: var(--muted); }
+.explore-preview-meta { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.75rem; }
+.explore-preview-cta { display: inline-block; text-decoration: none; }
+
+/* ============================= Milník 12 ("Corona Bloom" mobile
+   design transfer) - sdílená "klikatelná dlaždice" (zadání bod 1 -
+   "jemně orámované, klikatelné dlaždice"; zpětná vazba z mockupu -
+   "nevypadá to jakoby se na to dá kliknout", ale BEZ ploché šedé
+   výplně jako dřív). Stejná definice jako finální schválený mockup
+   (jemný okraj + skoro neviditelné pozadí), znovupoužitá na
+   `.sunset-card`/`.explore-result-card`/`.best-day-card` - žádná nová
+   paleta per-komponenta. Pořadí v souboru (AŽ ZA výchozí definicí
+   každé komponenty) je důležité - stejná specificita, tak vyhrává to,
+   co je v souboru níž. ============================= */
+.tap-tile {
+  background: rgba(255, 255, 255, 0.035);
+  border-color: rgba(255, 255, 255, 0.13);
+}
+.tap-tile:hover { border-color: rgba(255, 255, 255, 0.28); }
+
+/* ============================= MINIMALISTICKÝ VÝBĚR LOKALITY (zadání
+   bod 1 - "📍 Lysá hora" + nenápadný odkaz "Jiná lokalita") - nahrazuje
+   dřívější VŽDY VIDITELNÉ "Use my current location" tlačítko + "Where?"
+   pole. `.hero-search` karta (beze změny obsahu/funkce) se teď
+   zobrazí/schová přes `hidden`, viz static/app.js. ============================= */
+.hero-location-row {
+  margin-top: 1.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+}
+.hero-location-row .hero-location { margin-top: 0; }
+.location-other-link {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.location-other-link:hover { color: var(--accent-soft); }
+.location-other-link .icon { width: 0.85em; height: 0.85em; }
+
+/* ============================= TONIGHT MINI PREVIEW (zadání bod 1/3 -
+   "náhled Tonight" dostává Corona Bloom) - malý náhled špičky skutečně
+   analyzovaných míst přímo pod dnešní předpovědí, dřív appka tu žádný
+   náhled skóre neměla (jen obecnou barevnou předpověď bez čísla).
+   Skutečná data = prvních pár kandidátů z už načteného
+   `beskydyCandidates` (žádné nové API volání), viz static/app.js
+   renderTonightPreview(). ============================= */
+.tonight-preview:not([hidden]) { margin-top: 1.75rem; text-align: left; }
+.tonight-preview-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 0.7rem;
+}
+.tonight-preview-head span.section-label-link {
+  font-size: 0.72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em;
+}
+.tonight-preview-head a.section-label-link { font-size: 0.78rem; font-weight: 700; color: var(--accent-soft); }
+.tonight-preview-row { display: flex; gap: 0.6rem; }
+.tonight-preview-tile {
+  flex: 1; min-width: 0; text-align: center; padding: 0.75rem 0.2rem 0.6rem;
+  cursor: pointer; transition: border-color 0.15s ease, background 0.15s ease;
+}
+.tonight-preview-tile svg { display: block; margin: 0 auto; }
+.tonight-preview-tile-name {
+  display: flex; align-items: center; justify-content: center; gap: 0.25rem;
+  margin-top: 0.4rem; font-size: 0.72rem; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tonight-preview-tile-name .icon { width: 0.75em; height: 0.75em; flex-shrink: 0; }
+
+/* ============================= SKY PANEL (zadání bod 1 - "sjednocená
+   gradientová obloha bez ostrého barevného řezu") - nahrazuje dřívější
+   radial-glow-přes-plochou-barvu kombinaci jedním plynulým vertikálním
+   gradientem, který končí PŘESNĚ v `--bg` (žádný viditelný řez mezi
+   hero plochou a zbytkem stránky). STEJNÉ `--sky-sun-*`/`--sky-haze-*`
+   proměnné jako dřív (`applySkyMood()`/`sky-mood-*`, beze změny JS
+   logiky) - gradient tak dál reaguje na SKUTEČNÁ data (barevný
+   potenciál), jen jinak vizuálně složený. ============================= */
+/* Gradient je FIXNÍ výšky, kotvený k vršku (`::before`, `z-index: 0`) -
+   ne přes celou (různě vysokou, podle obsahu/preferencí) výšku
+   `#hero`/`#place-hero`, jinak by se oranžové sluneční pásmo posouvalo
+   nahoru/dolů podle toho, kolik textu/karet je zrovna vidět. Spodní
+   stop je `transparent` (NE `var(--bg)`) - plocha pod `::before` je
+   stejně už `var(--bg)` (viz body), takže přechod je plynulý bez
+   ostrého řezu, i když `::before` sám skončí uprostřed delšího obsahu. */
+.sky-panel { position: relative; }
+.sky-panel::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  z-index: 0;
+  height: clamp(190px, 34vw, 360px);
+  background: linear-gradient(
+    180deg,
+    #1a1430 0%,
+    #352541 32%,
+    var(--sky-haze-2, #ff8f4d) 68%,
+    transparent 100%
+  );
+  transition: background 1.2s ease;
+  pointer-events: none;
+}
+.sky-panel .sky-sun {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: clamp(70px, 15vw, 130px);
+  width: clamp(56px, 11vw, 90px);
+  height: clamp(56px, 11vw, 90px);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  background: radial-gradient(circle at 50% 50%, var(--sky-sun-1, #ffe8c2) 0%, var(--sky-sun-2, #ffb066) 70%, rgba(255, 176, 102, 0) 100%);
+  transition: background 1.2s ease;
+  pointer-events: none;
+}
+.sky-panel .sky-horizon-line {
+  position: absolute;
+  z-index: 1;
+  left: 0; right: 0;
+  top: clamp(100px, 20vw, 168px);
+  height: 1px;
+  background: rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+}
+
+/* ============================= NOT FOUND ============================= */
+.not-found-main { max-width: 640px; margin: 4rem auto; padding: 0 1.25rem; text-align: center; }
+.not-found-main h1 { font-size: 1.6rem; margin-bottom: 0.75rem; }
+.not-found-main p { color: var(--muted); margin-bottom: 1.5rem; }
+
+/* ============================= RESPONSIVE ============================= */
+@media (max-width: 640px) {
+  #site-header { padding: 0.85rem 1rem; }
+  main { padding: 0 1rem 4rem; }
+  #hero { padding: 2.25rem 0 1.75rem; }
+  /* AUDIT NÁLEZ (Milník 12, skutečný browser test, 390px viewport) -
+     `#place-hero`'s breakout margin/padding byl natvrdo na desktopové
+     1.25rem `main` padding, zatímco `main` samo má na mobilu jen 1rem
+     (viz pravidlo výše) - rozdíl (4px na každou stranu) appku na
+     mobilu horizontálně přetékal. */
+  #place-hero { margin: 0 -1rem; padding-inline: 1rem; }
+  .best-grid { justify-content: center; text-align: center; }
+  .best-stats { justify-content: center; }
+  .cta-row { justify-content: center; }
+  .why-list { grid-template-columns: 1fr; }
+  #map-frame { height: 60vh; }
+  #place-map-frame { height: 50vh; }
+  .best-days-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+
+  /* Milník "Vizuální sjednocení" - AUDIT NÁLEZ (skutečný browser test,
+     390px viewport): `.details-grid dt { grid-row: 1 }` (všechny popisky
+     explicitně na řádek 1, viz výše) nutilo grid vytvořit tolik
+     sloupců, kolik je položek (7+), bez ohledu na `auto-fill`/`minmax`
+     - na mobilu to přetékalo stovky pixelů za okraj obrazovky. Na
+     úzkém displeji se popisky/hodnoty prostě vrátí do přirozeného
+     pořadí dokumentu (jeden sloupec, label nad hodnotou, stejně jako
+     `.why-list` výše), žádné explicitní umístění navíc. */
+  .details-grid { grid-template-columns: 1fr; }
+  .details-grid dt { grid-row: auto; }
+
+  #explore-layout { flex-direction: column; }
+  #explore-panel { width: auto; max-height: 42vh; border-right: none; border-bottom: 1px solid var(--border); }
+  #explore-map-frame { min-height: 40vh; }
+  .explore-preview { left: 0.6rem; right: 0.6rem; max-width: none; }
+}

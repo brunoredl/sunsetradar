@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sunset Radar — Místo nenalezeno</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ static_url('style.css') }}">
+</head>
+<body>
+<header id="site-header">
+  <a href="/" class="brand">
+    <svg class="brand-mark" viewBox="0 0 28 28" aria-hidden="true">
+      <defs>
+        <linearGradient id="logoSun" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#ffe8c2"/>
+          <stop offset="100%" stop-color="#ff8f4d"/>
+        </linearGradient>
+      </defs>
+      <circle cx="14" cy="14" r="12.5" fill="none" stroke="currentColor" stroke-opacity="0.18"/>
+      <path d="M8 15 a6 6 0 0 1 12 0 Z" fill="url(#logoSun)"/>
+      <path d="M3.5 15 H24.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.55"/>
+      <path d="M7 19 H21 M9 22 H19" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" opacity="0.25"/>
+    </svg>
+    <span>SUNSET RADAR</span>
+  </a>
+  <nav class="site-nav">
+    <a href="/" class="nav-link">Tonight</a>
+    <a href="/explore" class="nav-link">Explore</a>
+  </nav>
+</header>
+<main class="not-found-main">
+  <h1>Místo „{{ slug }}“ nebylo nalezeno</h1>
+  <p>Tenhle odkaz neodpovídá žádnému místu v aktuálním katalogu.</p>
+  <a href="/explore" class="btn-primary">Prozkoumat mapu</a>
+</main>
+</body>
+</html>

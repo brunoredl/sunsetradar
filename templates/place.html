@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ candidate.name }} — Sunset Radar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ static_url('style.css') }}">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+</head>
+<body data-candidate-id="{{ candidate.id }}" data-slug="{{ candidate.slug }}" data-lat="{{ candidate.lat }}" data-lon="{{ candidate.lon }}"
+      data-timezone="{{ default_timezone }}">
+
+<header id="site-header">
+  <a href="/" class="brand">
+    <svg class="brand-mark" viewBox="0 0 28 28" aria-hidden="true">
+      <defs>
+        <linearGradient id="logoSun" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#ffe8c2"/>
+          <stop offset="100%" stop-color="#ff8f4d"/>
+        </linearGradient>
+      </defs>
+      <circle cx="14" cy="14" r="12.5" fill="none" stroke="currentColor" stroke-opacity="0.18"/>
+      <path d="M8 15 a6 6 0 0 1 12 0 Z" fill="url(#logoSun)"/>
+      <path d="M3.5 15 H24.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.55"/>
+      <path d="M7 19 H21 M9 22 H19" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" opacity="0.25"/>
+    </svg>
+    <span>SUNSET RADAR</span>
+  </a>
+  <nav class="site-nav">
+    <a href="/" class="nav-link">Tonight</a>
+    <a href="/explore" class="nav-link">Explore</a>
+  </nav>
+</header>
+
+<main class="place-main">
+  <a href="/explore" class="back-link">← Back to Explore</a>
+
+  <section id="place-hero" class="sky-panel">
+    <div class="sky-sun" aria-hidden="true"></div>
+    <div class="sky-horizon-line" aria-hidden="true"></div>
+    {% set known_place_types = ['peak', 'viewpoint', 'tower', 'castle', 'hill'] %}
+    <p class="section-eyebrow is-sunset" id="place-type-eyebrow">
+      <span class="icon icon-{{ candidate.type if candidate.type in known_place_types else 'pin' }}" aria-hidden="true"></span>
+      {{ candidate.type|upper }}
+    </p>
+    <h1 id="place-name">{{ candidate.name }}</h1>
+    <p class="place-sub" id="place-sub">
+      {%- if candidate.elevation_m is not none -%}{{ candidate.elevation_m|round(0)|int }} m elevation
+      {%- else -%}elevation unknown{%- endif -%}
+    </p>
+
+    <div id="place-loading" class="place-status">
+      <span class="spinner"></span>
+      <span id="place-loading-text">Loading terrain analysis…</span>
+    </div>
+    <div id="place-error" class="error-box" hidden></div>
+
+    <!-- Zpětná vazba (živé použití) - "při kliknutí na místo chci, aby
+    ta předpověď byla víc vidět, výš postavená" - skóre/kroužek dřív
+    bylo AŽ POD souřadnicemi a celým řádkem badge (typ/barva/inverze/
+    okolí), takže návštěvník scrolloval/četl spoustu věcí, než uviděl
+    samotné hodnocení. Teď je to PRVNÍ věc po názvu/elevaci - skutečná
+    předpověď, ne kontextové detaily kolem ní. -->
+    <div id="place-hero-grid" class="best-grid" hidden>
+      <div class="rating-ring-wrap">
+        <!-- Milník 12 ("Corona Bloom") - dynamický SVG meter (static/place.js
+        renderHero() -> coronaBloomSvg(), sunset_viz.js), žádné statické
+        kolečko/natvrdo psaný SVG tady v šabloně. -->
+        <div id="corona-bloom-place-hero" class="corona-bloom-hero"></div>
+        <div class="rating-ring-caption">SUNSET SCORE</div>
+      </div>
+      <div class="best-info">
+        <p class="rating-desc" id="place-rating-desc">—</p>
+        <div class="best-stats">
+          <div class="stat"><span class="icon icon-sunset" aria-hidden="true"></span><span id="place-stat-sunset">—</span></div>
+          <div class="stat"><span class="icon icon-compass" aria-hidden="true"></span><span id="place-stat-horizon">—</span></div>
+          <div class="stat"><span class="icon icon-clock" aria-hidden="true"></span><span id="place-stat-visible">—</span></div>
+          <div class="stat"><span class="icon icon-mountain" aria-hidden="true"></span><span id="place-stat-elevation">—</span></div>
+          <div class="stat" id="place-stat-clouds-row" hidden><span class="icon icon-cloud" aria-hidden="true"></span><span id="place-stat-clouds">—</span></div>
+          <div class="stat" id="place-stat-precip-row" hidden><span class="icon icon-cloud" aria-hidden="true"></span><span id="place-stat-precip">—</span></div>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- Zpětná vazba (živé použití) - "ta [předpověď] musí být už pod tím
+  why this place" - skóre teď přímo navazuje na vysvětlení PROČ (žádná
+  sekce mezi nimi), badge/souřadnice/DEM poznámka (podpůrné detaily, ne
+  samotná předpověď ani její zdůvodnění) se přesunuly AŽ ZA "Why this
+  place?", viz #place-details níže. -->
+  <section id="place-why" hidden>
+    <p class="section-eyebrow">WHY THIS PLACE?</p>
+    <ul id="place-why-list" class="why-list"></ul>
+  </section>
+
+  <section id="place-details">
+    <div id="place-badges" class="place-badges"></div>
+    <p class="hint" id="place-dem-quality-note" hidden></p>
+
+    {% if candidate.lat is not none and candidate.lon is not none %}
+    {# Fáze 5 - skutečné souřadnice bodu z katalogu (STEJNÁ hodnota jako
+       data-lat/data-lon na <body>, žádný odhad ze jména/obce - candidates
+       tabulka má lat/lon jako povinné pole, nikdy chybí pro reálný
+       kandidát). Vykresleno rovnou server-side (žádné čekání na /api/place),
+       jen tlačítka (kopírování) potřebují JS - viz static/place.js. #}
+    <div class="place-coords-row" id="place-coords-row">
+      <span class="place-coords-text" id="place-coords-text">{{ "%.6f"|format(candidate.lat) }}, {{ "%.6f"|format(candidate.lon) }}</span>
+      <button type="button" id="place-copy-coords-btn" class="place-coords-action">
+        <span class="icon icon-copy" aria-hidden="true"></span> Copy
+      </button>
+      <a id="place-maps-link" class="place-coords-action" href="https://www.google.com/maps?q={{ "%.6f"|format(candidate.lat) }},{{ "%.6f"|format(candidate.lon) }}" target="_blank" rel="noopener">
+        <span class="icon icon-pin" aria-hidden="true"></span> Open in Maps
+      </a>
+      <span class="place-coords-feedback" id="place-coords-feedback" hidden></span>
+    </div>
+    {% endif %}
+  </section>
+
+  <section id="place-score-breakdown" hidden>
+    <details class="score-breakdown" open>
+      <summary>Sunset Score breakdown</summary>
+      <dl id="place-score-breakdown-list" class="score-breakdown-list"></dl>
+    </details>
+  </section>
+
+  <section id="place-terrain" hidden>
+    <p class="section-eyebrow">TERRAIN</p>
+    <dl class="details-grid" id="place-terrain-list"></dl>
+  </section>
+
+  <section id="place-best-days" hidden>
+    <p class="section-eyebrow">BEST DAYS THIS WEEK</p>
+    <h2>Kdy tenhle týden vyrazit</h2>
+    <p class="hint">Každý den je přepočítaný zvlášť - vlastní čas západu, vlastní počasí nejblíž tomu západu, vlastní
+      skóre. Žádný den nekopíruje dnešní číslo.</p>
+    <!-- Milník 12 (zadání bod 6) - "jasně rozlišuj dlouhodobější výhled
+    od přesnější předpovědi na dnešek, nevymýšlej přesnost, kterou model
+    nemá" - meteorologická předpověď je ze své podstaty méně jistá, čím
+    dál dopředu se dívá. Dny 4+ dopředu navíc dostávají vlastní poznámku
+    přímo u karty, viz static/place.js renderBestDays(). -->
+    <p class="hint tonight-forecast-caveat">Předpověď pro vzdálenější dny je z podstaty méně jistá než pro dnešek -
+      počasí se může do té doby ještě změnit.</p>
+    <div id="place-best-days-grid" class="best-days-grid bleed-wide"></div>
+  </section>
+
+  <section id="place-panorama" hidden>
+    <p class="section-eyebrow is-sunset">SUNSET PANORAMA</p>
+    <div class="panorama-wrap bleed-wide">
+      <canvas id="place-panorama-canvas" width="1000" height="380"></canvas>
+      <button type="button" id="place-panorama-recenter" class="panorama-recenter-btn">🌅 Recenter</button>
+    </div>
+    <!-- Zpětná vazba (živé použití) - "z toho moc nevyčtu, jen že
+    západ je na západě" - panorama dřív neřekla SLOVY, co ten tvar/
+    barva znamená. `panoramaCaptionText()` (static/sunset_viz.js) ze
+    SKUTEČNÝCH, už jinde zobrazených čísel (`terrain_obstruction`/
+    `delay_minutes` - reálná simulace dráhy slunce přes terén). -->
+    <p class="panorama-caption" id="place-panorama-caption"></p>
+    <p class="hint">Tečkovaná vodorovná čára = plochý horizont (0°) - terén nad ní slunce zakrývá dřív, terén pod ní
+      nechává obzor otevřený. Táhni myší/prstem pro rozhlédnutí po celém horizontu. Skutečná 360° terénní data
+      (výškové měřítko je kvůli čitelnosti zvětšené, ne 1:1 se skutečným úhlem), žádné vymyšlené hory.</p>
+  </section>
+
+  <section id="place-access" hidden>
+    <p class="section-eyebrow">ACCESS</p>
+    <p id="place-access-text" class="place-access-text"></p>
+  </section>
+
+  <section id="place-map-section" hidden>
+    <p class="section-eyebrow">MAP</p>
+    <div id="place-map-frame" class="bleed-wide">
+      <div id="place-map"></div>
+    </div>
+  </section>
+</main>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="{{ static_url('sunset_viz.js') }}"></script>
+<script src="{{ static_url('place.js') }}"></script>
+</body>
+</html>

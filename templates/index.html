@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sunset Radar — Najdi svůj dokonalý západ slunce</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ static_url('style.css') }}">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+</head>
+<body>
+
+<header id="site-header">
+  <a href="/" class="brand">
+    <!-- Milník 12 (zadání bod 1 - "pěkné a výstižné logo, ne jen
+    nápis") - malá inline SVG značka (žádná nová knihovna/font/obrázek):
+    tlumený prstenec jako "radar"/odznak, horizont, polovina slunce
+    sedící přesně na horizontu (teplý gradient), dvě tenké odrazové
+    linky dole (voda/krajina pod vyhlídkou). Stejná geometrická/line-art
+    estetika jako zbytek ikonového systému, jen s vlastním gradientem
+    místo jednobarevné masky (logo smí mít barvu navíc). -->
+    <svg class="brand-mark" viewBox="0 0 28 28" aria-hidden="true">
+      <defs>
+        <linearGradient id="logoSun" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#ffe8c2"/>
+          <stop offset="100%" stop-color="#ff8f4d"/>
+        </linearGradient>
+      </defs>
+      <circle cx="14" cy="14" r="12.5" fill="none" stroke="currentColor" stroke-opacity="0.18"/>
+      <path d="M8 15 a6 6 0 0 1 12 0 Z" fill="url(#logoSun)"/>
+      <path d="M3.5 15 H24.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.55"/>
+      <path d="M7 19 H21 M9 22 H19" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" opacity="0.25"/>
+    </svg>
+    <span>SUNSET RADAR</span>
+  </a>
+  <nav class="site-nav">
+    <a href="/" class="nav-link is-active">Tonight</a>
+    <a href="/explore" class="nav-link">Explore</a>
+    <button id="panel-toggle" class="icon-btn" type="button" aria-label="Location &amp; date settings"><span class="icon icon-menu" aria-hidden="true"></span></button>
+  </nav>
+</header>
+
+<div id="control-panel" class="panel" hidden>
+  <button id="panel-close" type="button" class="icon-btn panel-close" aria-label="Zavřít nastavení"><span class="icon icon-close" aria-hidden="true"></span></button>
+  <h3>Location &amp; date</h3>
+  <div class="field">
+    <label for="test-location">Jump to a location</label>
+    <select id="test-location">
+      <option value="">— vlastní souřadnice —</option>
+      {% for loc in test_locations %}
+      <option value="{{ loc.lat }},{{ loc.lon }}">{{ loc.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="field-row">
+    <div class="field">
+      <label for="date">Date</label>
+      <input type="date" id="date" value="{{ today }}" required>
+    </div>
+    <div class="field">
+      <label for="timezone">Timezone</label>
+      <input type="text" id="timezone" value="{{ default_timezone }}" required>
+    </div>
+  </div>
+
+  <details class="manual-coords">
+    <summary>Manuální souřadnice</summary>
+    <div class="field-row">
+      <div class="field">
+        <label for="lat">Latitude</label>
+        <input type="number" id="lat" step="0.0001" min="-90" max="90" value="50.5552">
+      </div>
+      <div class="field">
+        <label for="lon">Longitude</label>
+        <input type="number" id="lon" step="0.0001" min="-180" max="180" value="13.9312">
+      </div>
+    </div>
+    <button type="button" id="manual-analyze-btn">Analyze coordinates</button>
+  </details>
+
+  <p class="hint">Terén a 3D reliéf na mapě: veřejná open-data, jen pro lokální vývoj/demo (viz README). Skutečná
+    sunset/terrain analýza vždy používá přesná DEM data (ČÚZK / Copernicus) přes stejný <code>/api/analyze</code>.</p>
+</div>
+
+<main>
+
+  <section id="hero" class="sky-panel">
+    <!-- Milník 12 (zadání bod 1 - "sjednocená gradientová obloha bez
+    ostrého barevného řezu") - sluneční kotouč + horizontová linka nad
+    PLYNULÝM gradientem (`.sky-panel`, viz style.css), žádná mountain
+    silueta/radial-glow kombinace jako dřív - gradient i slunce dál
+    reagují na stejné `--sky-sun-*`/`--sky-haze-*` proměnné (SKUTEČNÁ
+    data, `applySkyMood()` beze změny logiky). -->
+    <div class="sky-sun" aria-hidden="true"></div>
+    <div class="sky-horizon-line" aria-hidden="true"></div>
+    <div class="hero-content">
+      <p class="eyebrow">SUNSET RADAR</p>
+      <h1>Najdi svůj dokonalý<br>západ slunce.</h1>
+      <p class="hero-sub">Terrain-aware sunset conditions pro hory, vyhlídky a outdoor dobrodružství.</p>
+
+      <!-- Milník 12 (zadání bod 1 - minimalistický výběr lokality:
+      "📍 Lysá hora" + nenápadný odkaz "Jiná lokalita") - nahrazuje
+      dřívější vždy viditelné "Use my current location" tlačítko +
+      "Where?" pole; ty teď žijí UVNITŘ `.hero-search`, schované, dokud
+      uživatel neklikne na odkaz (static/app.js). -->
+      <div class="hero-location-row">
+        <p class="hero-location"><span class="icon icon-pin" aria-hidden="true"></span> <span id="hero-location">Načítám…</span></p>
+        <a href="#" id="other-location-link" class="location-other-link">
+          <span class="icon icon-pin" aria-hidden="true"></span> Jiná lokalita
+        </a>
+      </div>
+
+      <!-- Milník 12 (zadání bod 1A) - "dominantní informace, několik
+      doplňujících, krátké vysvětlení", NEZÁVISLÉ na výběru konkrétní
+      vyhlídky - proto umístěná PŘED vyhledávací kartou (zadání "nechci,
+      aby hlavní stránka byla jen vyhledávací pole", stránka musí mít
+      hodnotu, než uživatel cokoliv vyhledá). Dominantní = barevný
+      potenciál (`color_potential`, app/sunset_score.py) - specifičtější
+      a užitečnější otázka než obecný "typ" západu. Badge řádek pod tím
+      = doplňující (přímý výhled na slunce / inverze-mlha / poctivá
+      výhrada bez počasí), vysvětlení = `color_potential.detail` (už
+      hotová, zdůvodněná věta z klasifikační funkce, ne nová
+      marketingová fráze). -->
+      <div class="tonight-card" id="tonight-card">
+        <!-- Zadání "pohraj si víc s tím logem, ať je součást hlavního
+        panelu" - stejná značka jako v hlavičce (viz .brand), tady větší
+        a jako vizuální "pečeť" rovnou nad dominantní předpovědí, ne jen
+        v rohu stránky. Barva slunečního půlkruhu navíc reaguje na
+        stejnou `--sky-sun-*` proměnnou jako hero silueta (applySkyMood)
+        - logo tak doslova "ukazuje" dnešní náladu oblohy. -->
+        <svg class="tonight-card-mark" viewBox="0 0 28 28" aria-hidden="true">
+          <circle cx="14" cy="14" r="12.5" fill="none" stroke="currentColor" stroke-opacity="0.18"/>
+          <path d="M8 15 a6 6 0 0 1 12 0 Z" fill="var(--sky-sun-2, #ff8f4d)"/>
+          <path d="M3.5 15 H24.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.55"/>
+          <path d="M7 19 H21 M9 22 H19" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" opacity="0.25"/>
+        </svg>
+        <p class="tonight-meta" id="hero-context">Načítám dnešní podmínky…</p>
+        <p class="tonight-headline" id="tonight-headline" hidden>—</p>
+        <p class="tonight-explain" id="tonight-explain" hidden></p>
+        <div class="tonight-badges" id="today-conditions" hidden>
+          <span class="today-badge" id="today-horizon-badge" hidden></span>
+          <span class="today-badge" id="today-inversion-badge" hidden></span>
+          <span class="today-badge is-muted" id="today-confidence-badge" hidden></span>
+        </div>
+      </div>
+
+      <!-- Milník 12 (zadání bod 1/3 - "náhled Tonight" dostává Corona
+      Bloom) - malý náhled špičky skutečně analyzovaných míst (ze už
+      načteného `beskydyCandidates`, žádné nové API volání), viz
+      static/app.js renderTonightPreview(). Skryté, dokud se dataset
+      nenačte (žádné vymyšlené/nulové skóre). -->
+      <div class="tonight-preview" id="tonight-preview" hidden>
+        <div class="tonight-preview-head">
+          <span class="section-label-link">Best places nearby</span>
+          <a href="#other-sunsets" class="section-label-link">See all →</a>
+        </div>
+        <div class="tonight-preview-row" id="tonight-preview-row"></div>
+      </div>
+
+      <!-- Zadání bod 1A/5 - "jasná cesta k vyhledání konkrétní vyhlídky" -
+      vyhledávací karta teď navazuje PO obecné předpovědi jako další krok,
+      ne jako první věc na stránce. -->
+      <p class="tonight-next-label">Najít konkrétní vyhlídku</p>
+      <div class="hero-search" id="hero-search" hidden>
+        <button type="button" id="use-my-location-btn" class="btn-secondary use-location-btn">
+          <span class="icon icon-pin" aria-hidden="true"></span> Use my current location
+        </button>
+        <p class="or-divider">or search by name</p>
+        <div class="hero-search-row">
+          <label for="search-where">Where?</label>
+          <input type="text" id="search-where" placeholder="Pustevny, Ostrava, Liberec…" autocomplete="off">
+        </div>
+        <div class="hero-search-row">
+          <label for="search-radius">Search within</label>
+          <input type="range" id="search-radius" min="5" max="100" step="5" value="25">
+          <span id="search-radius-value" class="hero-search-radius-value">25 km</span>
+        </div>
+
+        <!-- Milník 12, dolaďeno po zpětné vazbě ("tam určitě nepatří barvy
+        ani inverze, myslím jako přírodní typ okolí, město, vodní plocha")
+        - rychlý řádek je o TYPU MÍSTA/okolí (stabilní vlastnost místa,
+        nemění se den ze dne), ne o dnešních podmínkách oblohy. "Vivid
+        colors"/"Inversion"/"Sun on horizon" se přesunuly do rozkliknutého
+        panelu pod vlastní skupinu "Tonight" (jsou o POČASÍ pro konkrétní
+        večer, jiná kategorie než scéna/typ okolí). Každá čte skutečná
+        data - viz app/personalization.py `UserPreferences`/
+        `compute_user_match()` a komentáře tam. -->
+        <div class="pref-quick-row" id="pref-quick-row">
+          <label class="pref-chip pref-chip-quick">
+            <input type="checkbox" id="pref-natural-quick"> 🌲 Natural
+          </label>
+          <label class="pref-chip pref-chip-quick">
+            <input type="checkbox" id="pref-city-quick"> 🏙️ City
+          </label>
+          <label class="pref-chip pref-chip-quick">
+            <input type="checkbox" id="pref-water-quick"> 💧 Water
+          </label>
+        </div>
+        <button type="button" id="preferences-toggle-btn" class="link-btn">More preferences (optional)</button>
+        <div class="hero-preferences" id="hero-preferences" hidden>
+          <div class="pref-group">
+            <span class="pref-group-label">Scene</span>
+            <label class="pref-chip"><input type="checkbox" class="pref-scene" value="mountain"> Mountain</label>
+            <label class="pref-chip"><input type="checkbox" class="pref-scene" value="water"> Water</label>
+            <label class="pref-chip"><input type="checkbox" class="pref-scene" value="city"> City</label>
+            <label class="pref-chip"><input type="checkbox" class="pref-scene" value="forest"> Forest</label>
+          </div>
+          <div class="pref-group">
+            <span class="pref-group-label">Views</span>
+            <label class="pref-chip"><input type="checkbox" id="pref-panorama"> Panorama</label>
+            <label class="pref-chip"><input type="checkbox" id="pref-photography"> Photography</label>
+            <label class="pref-chip"><input type="checkbox" id="pref-dramatic"> Dramatic</label>
+            <label class="pref-chip"><input type="checkbox" id="pref-clear"> Clear</label>
+          </div>
+          <!-- Milník 12, dolaďeno po zpětné vazbě - tyhle tři jsou o
+          DNEŠNÍM POČASÍ, ne o typu místa, takže patří do vlastní
+          skupiny, ne do rychlého řádku nad touhle kartou (viz komentář
+          u .pref-quick-row výše). -->
+          <div class="pref-group">
+            <span class="pref-group-label">Tonight</span>
+            <label class="pref-chip"><input type="checkbox" id="pref-vivid"> Vivid colors</label>
+            <label class="pref-chip"><input type="checkbox" id="pref-inversion"> Inversion/fog</label>
+            <label class="pref-chip"><input type="checkbox" id="pref-horizon"> Sun on horizon</label>
+          </div>
+          <div class="pref-group">
+            <span class="pref-group-label">Hiking effort</span>
+            <select id="pref-hiking-effort">
+              <option value="">No preference</option>
+              <option value="easy">Easy (car-accessible)</option>
+              <option value="moderate">Moderate</option>
+              <option value="hike">Hike</option>
+              <option value="adventure">Adventure</option>
+            </select>
+          </div>
+          <p class="hint">Hiking effort is estimated from distance and elevation (no trail/routing data yet - a high peak is never shown as "easy" just because it's close as the crow flies). Water/City/Forest use real OpenStreetMap proximity data (within a few km), not exact viewpoint framing. Sun-on-horizon/panorama use the same real terrain-openness numbers shown in each place's score breakdown.</p>
+        </div>
+        <button type="button" id="find-sunset-btn" class="btn-primary">Find my sunset</button>
+        <p class="hero-search-status" id="search-status" hidden></p>
+        <p class="hero-search-error" id="search-error" hidden></p>
+      </div>
+
+      <p class="hero-stat" id="hero-stat" hidden></p>
+    </div>
+  </section>
+
+  <div id="loading" hidden>
+    <span class="spinner"></span>
+    Analyzing terrain... (první analýza nové oblasti může trvat 10–20 s kvůli stažení DEM dat)
+  </div>
+  <div id="error" class="error-box" hidden></div>
+
+  <section id="best-sunset" hidden>
+    <!-- Fáze 10 (zadání bod 5/10) - stejný horský motiv jako hero, jen
+    tlumenější (nižší opacity/výška) - horizont "za výsledkem", ne jen
+    barevný box s ratingem. Čistě dekorativní, viz komentář u hero SVG. -->
+    <svg class="scene-silhouette" viewBox="0 0 1200 200" preserveAspectRatio="none" aria-hidden="true">
+      <path class="ridge ridge-back" d="M0,120 Q150,80 300,100 Q450,120 600,85 Q750,55 900,95 Q1050,120 1200,100 L1200,200 L0,200 Z" />
+      <path class="ridge ridge-front" d="M0,160 Q180,120 360,140 Q520,155 680,125 Q820,100 960,135 Q1080,155 1200,140 L1200,200 L0,200 Z" />
+    </svg>
+    <p class="section-eyebrow is-sunset">🏆 BEST SUNSET FOR YOU</p>
+    <h2 id="best-title">—</h2>
+    <span class="sunset-type-badge" id="sunset-type-badge" hidden></span>
+    <p class="dev-note">💡 Analýza konkrétního místa, které jsi vybral(a) — automatické porovnávání okolních míst
+      přidáme příště.</p>
+    <p class="dev-note" id="candidates-analyzed-note" hidden></p>
+    <p class="hint" id="dem-quality-note" hidden></p>
+
+    <div class="best-grid">
+      <div class="rating-ring-wrap">
+        <!-- Milník 12 ("Corona Bloom") - dynamický SVG meter se vykresluje
+        přímo sem (static/app.js renderRatingRing()), žádné statické
+        kolečko/ručně psaný SVG tady v šabloně. -->
+        <div id="corona-bloom-hero" class="corona-bloom-hero"></div>
+        <div class="rating-ring-caption">SUNSET SCORE</div>
+        <p class="user-match-badge" id="user-match-badge" hidden></p>
+      </div>
+
+      <div class="best-info">
+        <p class="rating-desc" id="rating-desc">—</p>
+        <p id="tz-note" class="hint"></p>
+        <div class="best-stats">
+          <div class="stat"><span class="icon icon-sunset" aria-hidden="true"></span><span id="stat-sunset">—</span></div>
+          <div class="stat"><span class="icon icon-compass" aria-hidden="true"></span><span id="stat-horizon">—</span></div>
+          <div class="stat"><span class="icon icon-clock" aria-hidden="true"></span><span id="stat-visible">—</span></div>
+          <div class="stat"><span class="icon icon-mountain" aria-hidden="true"></span><span id="stat-elevation">—</span></div>
+          <div class="stat" id="stat-clouds-row" hidden><span class="icon icon-cloud" aria-hidden="true"></span><span id="stat-clouds">—</span></div>
+          <div class="stat" id="stat-hike-row" hidden><span class="icon icon-hike" aria-hidden="true"></span><span id="stat-hike">—</span></div>
+        </div>
+        <div class="cta-row">
+          <button type="button" id="explore-panorama-btn" class="btn-primary">Prozkoumat západ</button>
+          <button type="button" id="show-on-map-btn" class="btn-secondary">Zobrazit na mapě</button>
+          <a id="open-place-page-btn" class="btn-secondary" href="#" hidden>Otevřít stránku místa →</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="why-block">
+      <h3>Proč právě toto místo?</h3>
+      <ul id="why-list" class="why-list"></ul>
+      <p class="hint">Analýza počítá s holým terénem (digitální model terénu ČÚZK/Copernicus), NE se stromy ani
+        budovami. Na zalesněných vrcholech se proto skutečný výhled může lišit od tohoto výpočtu.</p>
+    </div>
+
+    <details class="score-breakdown">
+      <summary>Sunset Score breakdown</summary>
+      <dl id="score-breakdown-list" class="score-breakdown-list"></dl>
+    </details>
+  </section>
+
+  <section id="panorama-section" hidden>
+    <p class="section-eyebrow is-sunset">SUNSET PANORAMA</p>
+    <h2>Podívej se na horizont</h2>
+    <div class="panorama-wrap bleed-wide">
+      <canvas id="panorama-canvas" width="1000" height="380"></canvas>
+      <button type="button" id="panorama-recenter" class="panorama-recenter-btn">🌅 Recenter</button>
+    </div>
+    <p class="panorama-caption" id="panorama-caption"></p>
+    <p class="hint">Tečkovaná vodorovná čára = plochý horizont (0°) - terén nad ní slunce zakrývá dřív, terén pod ní
+      nechává obzor otevřený. Táhni myší/prstem pro rozhlédnutí po celém horizontu. Skutečná 360° terénní data
+      (výškové měřítko je kvůli čitelnosti zvětšené, ne 1:1 se skutečným úhlem), žádné vymyšlené hory.</p>
+  </section>
+
+  <section id="other-sunsets">
+    <p class="section-eyebrow">OTHER SUNSETS</p>
+    <h2>Místa, která stojí za prozkoumání</h2>
+    <p class="hint" id="other-sunsets-hint">Ukázková data z testovacích lokalit — skutečné vyhledávání okolních míst
+      přijde až s candidate search (další fáze), tohle nejsou automaticky nalezená "nejlepší místa v okolí".</p>
+    <button type="button" id="refresh-results-btn" class="link-btn" hidden>↻ Zkontrolovat nové výsledky</button>
+    <div id="other-sunsets-grid" class="cards-grid bleed-wide"></div>
+    <button type="button" id="expand-other-sunsets-btn" class="btn-secondary" hidden></button>
+    <button type="button" id="show-more-candidates-btn" class="btn-secondary" hidden></button>
+  </section>
+
+  <section id="explore-map">
+    <p class="section-eyebrow">EXPLORE THE MAP</p>
+    <h2>Prozkoumat okolní západy</h2>
+    <p class="hint">Klikni kamkoliv na mapu pro analýzu daného místa. Otáčení, naklánění a zoom mapy analýzu
+      nespouští — spouští ji jen kliknutí na konkrétní bod.</p>
+    <div id="type-filter-chips" class="filter-chips" hidden>
+      <button type="button" class="filter-chip is-active" data-filter="all">All</button>
+      <button type="button" class="filter-chip" data-filter="peak">Peaks</button>
+      <button type="button" class="filter-chip" data-filter="viewpoint">Viewpoints</button>
+      <button type="button" class="filter-chip" data-filter="tower">Towers</button>
+      <button type="button" class="filter-chip" data-filter="castle">Castles</button>
+      <button type="button" class="filter-chip" data-filter="best">Best sunset</button>
+    </div>
+    <div id="map-frame" class="bleed-wide">
+      <button type="button" id="map-expand-btn">
+        <span id="map-expand-btn-label">Rozšířit mapu</span>
+      </button>
+      <div id="map"></div>
+      <div id="sunset-atmosphere" aria-hidden="true"></div>
+    </div>
+  </section>
+
+  <section id="technical-section">
+    <details id="technical-details">
+      <summary>Technical details</summary>
+      <div id="horizon-panel">
+        <h3>360° Terrain Horizon (analytický graf)</h3>
+        <div class="chart-wrap">
+          <canvas id="polar-chart" width="520" height="600"></canvas>
+        </div>
+        <p class="hint">Sever nahoře, směr hodinových ručiček. Barvy a značky viz legenda pod grafem.</p>
+
+        <h3>Terrain &amp; calculation details</h3>
+        <dl id="details-list" class="details-grid"></dl>
+
+        <div id="warnings-section" hidden>
+          <h3>Warnings</h3>
+          <ul id="warnings-list"></ul>
+        </div>
+
+        <details>
+          <summary>Raw JSON</summary>
+          <pre id="raw-json"></pre>
+        </details>
+      </div>
+    </details>
+  </section>
+
+</main>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="{{ static_url('app.js') }}"></script>
+</body>
+</html>

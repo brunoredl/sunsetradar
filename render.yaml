@@ -1,0 +1,25 @@
+# Render Blueprint (render.com/docs/blueprint-spec) - bezplatné testovací
+# nasazení Sunset Radar. Žádné tajné klíče/účty potřeba (ČÚZK/Copernicus/
+# Open-Meteo/Nominatim/Overpass jsou všechny bez API klíče, viz README.md).
+#
+# Použití: na render.com -> New -> Blueprint -> vyber tenhle repozitář.
+# Render tenhle soubor najde automaticky a navrhne přesně jednu bezplatnou
+# web service podle konfigurace níž - stačí potvrdit.
+services:
+  - type: web
+    name: sunset-radar
+    runtime: python
+    plan: free
+    region: frankfurt
+    branch: main
+    buildCommand: "pip install -r requirements.txt"
+    # $PORT nastavuje Render (mění se při každém nasazení) - appka sama
+    # žádný port nezná, viz app/main.py (žádné natvrdo 8000).
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /healthz
+    envVars:
+      # Bezpečný, dobře podporovaný Python s hotovými manylinux wheely
+      # pro rasterio/numpy/pyproj (zadání bod 1 - "nevyber hosting bez
+      # kontroly kompatibility") - NEOVLIVŇUJE lokální vývojové prostředí.
+      - key: PYTHON_VERSION
+        value: 3.12.7

@@ -1,0 +1,44 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+
+# --- data/ ---------------------------------------------------------
+# Essential, intentionally VERSIONED (small, needed at runtime, not
+# reproducible in a reasonable time on a free host):
+#   data/national_catalog.sqlite3   - celostátní katalog kandidátů
+#   data/candidate_catalog.json     - starší katalog (fallback zdroj,
+#                                      viz app/candidate_catalog.py)
+#   data/candidates_*.json          - předpočítané Best Sunset datasety
+#   data/terrain_cache.sqlite3      - precomputed terén (zabraňuje
+#                                      opakovanému "cold" DEM výpočtu po
+#                                      každém restartu na ephemeral disku)
+#   data/overpass_cache/grid_*_environment.json
+#                                    - celostátní cache water/forest/city
+#                                      signálu (živě čte /api/analyze pro
+#                                      LIBOVOLNÝ bod), chrání Overpass
+#                                      API před opakovanými živými dotazy
+#                                      z veřejného provozu (viz nasazení)
+#
+# NIKDY neverzovat (regenerovatelná cache syrových DEM dlaždic, řádově
+# gigabajty a bez pevné horní meze - roste s každým novým dotazem):
+data/cuzk_cache/
+data/dem_cache/
+
+# Regenerovatelná TTL cache počasí (malá, ale bezúčelná verzovat).
+data/weather_cache.sqlite3
+
+# Starší offline-build-only Overpass cache (used only by
+# scripts/build_candidate_catalog.py / build_national_catalog.py, NE
+# živým provozem - viz nasazovací audit) - zbytek overpass_cache/ kromě
+# grid_*_environment.json výše.
+data/overpass_cache/*
+!data/overpass_cache/grid_*_environment.json
+
+# Dev/PoC fixtures a diagnostické obrázky (scripts/poc_*.py,
+# tests/test_tile_manager.py) - nepoužívá je živá appka.
+data/*.tif
+data/*.tiff
+data/*.zip
+data/*.png
