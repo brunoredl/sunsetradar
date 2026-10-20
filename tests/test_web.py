@@ -886,6 +886,105 @@ def test_candidates_endpoint_known_region_without_dataset_returns_404(monkeypatc
     assert "error" in r.json()
 
 
+# BUG NALEZENÝ (živé použití - "appka řekne cloudy, ale všechna místa v
+# okolí ukazují ~90 %") - `/api/candidates` dřív vracelo JEN terrain-only
+# `rating` z předpočítaného souboru, nikdy `sunset_score` (plný kompozit
+# terén+počasí) - frontendová displayScore() tak VŽDY spadla na starý
+# terrain-only fallback, i když dnešní počasí bylo úplně jiné. Testy níž
+# ověřují opravu: `/api/candidates` teď pro kandidáty s cachovaným terénem
+# dopočítá skutečný dnešní sunset_score, stejnou sdílenou funkcí jako
+# `/api/find_sunset`/`/api/place`.
+
+
+@pytest.fixture
+def fake_candidates_dataset(monkeypatch, tmp_path):
+    """Malý testovací `candidates_<region>.json` (přesně tvar, jaký
+    vrací scripts/build_candidate_dataset.py) + fake `catalog_db.get_by_id`
+    pro stejná ID - obojí musí mít SHODNÉ ID, jinak by se "živé"
+    dopočítání nikdy nespustilo (přesně test pro fallback níž)."""
+    dataset = {
+        "region": "testregion",
+        "generated_at": "2026-09-01T12:00:00+02:00",
+        "analyzed_for_date": "2026-09-01",
+        "candidate_count": 2,
+        "candidates": [
+            {
+                "id": "cached", "name": "Cached Peak", "lat": 50.0, "lon": 14.0, "type": "peak",
+                "osm_elevation_m": 900.0, "measured_elevation_m": 900.0, "rating": 97,
+                "rating_label": "Excellent terrain visibility", "sunset_time": "2026-09-01T18:00:00+00:00",
+                "sunset_azimuth_deg": 270.0, "sunset_terrain_horizon_deg": -1.0, "delay_minutes": 0.0,
+                "terrain_obstruction": False,
+            },
+            {
+                "id": "not-cached", "name": "Uncached Peak", "lat": 50.1, "lon": 14.1, "type": "peak",
+                "osm_elevation_m": 800.0, "measured_elevation_m": 800.0, "rating": 90,
+                "rating_label": "Excellent terrain visibility", "sunset_time": "2026-09-01T18:00:00+00:00",
+                "sunset_azimuth_deg": 270.0, "sunset_terrain_horizon_deg": -1.0, "delay_minutes": 0.0,
+                "terrain_obstruction": False,
+            },
+        ],
+    }
+    path = tmp_path / "candidates_testregion.json"
+    path.write_text(json.dumps(dataset))
+    monkeypatch.setitem(main_module.CANDIDATE_DATASETS, "testregion", path)
+
+    catalog_row = {
+        "id": "cached", "slug": "cached-peak", "name": "Cached Peak", "display_name": "Cached Peak",
+        "candidate_type": "peak", "lat": 50.0, "lon": 14.0, "elevation_m": 900.0,
+        "near_water": False, "near_forest": False, "near_city": False,
+    }
+    monkeypatch.setattr(main_module.catalog_db, "get_by_id", lambda cid, db_path=None: catalog_row if cid == "cached" else None)
+    return dataset
+
+
+def test_candidates_endpoint_attaches_live_sunset_score_when_terrain_cached(fake_candidates_dataset, fake_cache):
+    cache_state, static_by_id = fake_cache
+    cache_state["cached"] = "ready"
+    static_by_id["cached"] = _fake_static_terrain(50.0, 14.0, elevation_m=900.0)
+
+    r = client.get("/api/candidates?region=testregion")
+    assert r.status_code == 200
+    data = r.json()
+    by_id = {c["id"]: c for c in data["candidates"]}
+
+    live = by_id["cached"]
+    assert live["rating"] == 97  # terrain-only pole beze změny (zpětná kompatibilita)
+    assert live["sunset_score"] is not None  # NOVĚ doplněno
+    assert live["sunset_score_label"]
+    assert "color_potential" in live
+
+
+def test_candidates_endpoint_falls_back_to_terrain_rating_when_terrain_not_cached(fake_candidates_dataset, fake_cache):
+    # "not-cached" nemá terrain_cache záznam (fake_cache default = "missing")
+    # ani catalog_db řádek (get_by_id vrací None) - appka NESMÍ spadnout
+    # ani si vymyslet skóre, jen zůstane u terrain-only ratingu.
+    r = client.get("/api/candidates?region=testregion")
+    assert r.status_code == 200
+    data = r.json()
+    by_id = {c["id"]: c for c in data["candidates"]}
+
+    stale = by_id["not-cached"]
+    assert stale["rating"] == 90
+    assert "sunset_score" not in stale  # žádné vymyšlené číslo
+
+
+def test_candidates_endpoint_one_candidate_failing_does_not_break_others(fake_candidates_dataset, fake_cache, monkeypatch):
+    cache_state, static_by_id = fake_cache
+    cache_state["cached"] = "ready"
+    static_by_id["cached"] = _fake_static_terrain(50.0, 14.0, elevation_m=900.0)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("simulovaná chyba dopočtu")
+
+    monkeypatch.setattr(main_module, "_dynamic_result_from_cache", boom)
+    r = client.get("/api/candidates?region=testregion")
+    assert r.status_code == 200  # jeden selhavší kandidát nesmí shodit celý endpoint
+    data = r.json()
+    assert data["candidate_count"] == 2
+    for c in data["candidates"]:
+        assert "sunset_score" not in c  # ani jeden se nedočkal (mock vždy spadne), ale pořád jen fallback, ne chyba
+
+
 # --- Milestone "Nationwide Live Search" - GET /api/search, teď nad
 # `catalog_db.radius_search()` (celostátní katalog), ne nad 3 ručně
 # vybranými regiony. Stejné `fake_catalog`/`fake_cache`/`fake_worker`

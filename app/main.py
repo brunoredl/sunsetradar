@@ -430,7 +430,28 @@ MAX_SEARCH_RESULTS = 200
 
 
 @app.get("/api/candidates")
-def api_candidates(region: str = "beskydy"):
+def api_candidates(region: str = "beskydy", timezone: str = DEFAULT_TIMEZONE):
+    """BUG NALEZENÝ (živé použití - "appka řekne cloudy, ale všechna
+    místa v okolí ukazují ~90 %") - tenhle endpoint dřív vracel JEN
+    `rating`/`rating_label` z PŘEDPOČÍTANÉHO souboru
+    (`scripts/build_candidate_dataset.py`, stavěný ručně a nepravidelně
+    - `generated_at` tu klidně bývá starý týdny). Tohle `rating` pole je
+    ÚMYSLNĚ terrain-only (žádné počasí, viz `app/sunset_rating.py`) -
+    frontendová `displayScore()` ho sice bere jen jako FALLBACK (přednost
+    má `sunset_score`, plný kompozit terén+počasí), ale to pole se sem
+    nikdy nedoplňovalo, takže fallback nastával VŽDY. Karty/markery tak
+    ukazovaly starý terénní rating (typicky 90+ na otevřených vrcholech),
+    zatímco hero sekce nad nimi (živý `/api/analyze`) správně hlásila
+    dnešní oblačnost - stejná appka si navzájem odporovala.
+
+    Oprava: pro každého kandidáta, u kterého je terén už cachovaný
+    (typický případ - stejná cache jako `/api/find_sunset`/`/api/place`,
+    ŽÁDNÝ nový DEM výpočet), dopočítá SKUTEČNÝ dnešní `sunset_score`
+    STEJNOU sdílenou funkcí (`_dynamic_result_from_cache()`) jako
+    zbytek appky - jen počasí (levné, cachované přes `weather_cache`,
+    TTL 3 h), ne terén. Kandidát bez cachovaného terénu/katalogového
+    záznamu prostě zůstane u terrain-only `rating` (fallback beze
+    změny) - nikdy se nevymýšlí skóre, které appka doopravdy nemá."""
     path = CANDIDATE_DATASETS.get(region)
     if path is None:
         return JSONResponse(
@@ -442,7 +463,28 @@ def api_candidates(region: str = "beskydy"):
             {"error": f"Pro oblast '{region}' zatím není předpočítaný dataset - spusť scripts/build_candidate_dataset.py."},
             status_code=404,
         )
-    return json.loads(path.read_text())
+    dataset = json.loads(path.read_text())
+
+    cache_key = terrain_cache.compute_cache_key()
+    when = datetime.now(ZoneInfo(timezone)).replace(hour=12, minute=0, second=0, microsecond=0)
+    for c in dataset.get("candidates", []):
+        try:
+            if terrain_cache.get_status(c["id"], cache_key) != terrain_cache.STATUS_READY:
+                continue  # terén se (ještě) nepočítal/neodpovídá aktuálnímu enginu - zůstane terrain-only rating
+            static = terrain_cache.get_static_terrain(c["id"], cache_key)
+            catalog_row = catalog_db.get_by_id(c["id"])
+            if static is None or catalog_row is None:
+                continue
+            live = _dynamic_result_from_cache(catalog_row, static, when, distance_km=0.0, tz_name=timezone, preferences=None)
+        except Exception:
+            logger.exception("Živé dopočítání sunset_score selhalo pro %s (region %s) - zůstává terrain-only rating", c.get("id"), region)
+            continue
+        c["sunset_score"] = live["sunset_score"]
+        c["sunset_score_label"] = live["sunset_score_label"]
+        c["sunset_type"] = live["sunset_type"]
+        c["color_potential"] = live["color_potential"]
+        c["inversion_potential"] = live["inversion_potential"]
+    return dataset
 
 
 @app.get("/api/geocode")
