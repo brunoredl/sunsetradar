@@ -333,6 +333,40 @@ def test_city_preference_uses_real_environment_signal():
     assert near.match_pct > far.match_pct
 
 
+# --- Zpětná vazba (živé použití, Brno/Špilberk) - "to vůbec není
+# přírodní, když je to uprostřed Brna" ---
+
+
+def test_forest_near_city_is_not_counted_as_natural_match():
+    # Špilberk-like kandidát: near_forest=True (malý park v okruhu),
+    # ale ZÁROVEŇ near_city=True (0.8 km od centra) - "Natural"
+    # preference (scene_types obsahuje "forest") tohle nesmí brát jako
+    # shodu, protože dominantní charakter místa je městský.
+    prefs = UserPreferences(scene_types=["forest"])
+    urban_forest = compute_user_match(prefs, "viewpoint", 300.0, 1.0, "clear", None, near_forest=True, near_city=True)
+    rural_forest = compute_user_match(prefs, "viewpoint", 300.0, 1.0, "clear", None, near_forest=True, near_city=False)
+    no_forest = compute_user_match(prefs, "viewpoint", 300.0, 1.0, "clear", None, near_forest=False, near_city=False)
+    assert urban_forest.match_pct == no_forest.match_pct  # městský "les" se počítá stejně jako žádný
+    assert rural_forest.match_pct > urban_forest.match_pct
+    assert "Matches your forest surroundings preference." not in urban_forest.reasons
+
+
+def test_water_near_city_is_not_counted_as_natural_match():
+    prefs = UserPreferences(scene_types=["water"])
+    urban_water = compute_user_match(prefs, "viewpoint", 300.0, 1.0, "clear", None, near_water=True, near_city=True)
+    rural_water = compute_user_match(prefs, "viewpoint", 300.0, 1.0, "clear", None, near_water=True, near_city=False)
+    assert rural_water.match_pct > urban_water.match_pct
+
+
+def test_city_preference_still_matches_when_also_near_forest_or_water():
+    # Opravná podmínka se týká JEN "water"/"forest" - "city" preference
+    # musí dál fungovat normálně, i když je zároveň near_forest/near_water.
+    prefs = UserPreferences(scene_types=["city"])
+    result = compute_user_match(prefs, "viewpoint", 300.0, 1.0, "clear", None, near_city=True, near_forest=True, near_water=True)
+    assert result.match_pct == 100.0
+    assert "Matches your cityscape preference." in result.reasons
+
+
 def test_mountain_preference_matches_high_peak():
     prefs = UserPreferences(scene_types=["mountain"])
     mountain = compute_user_match(prefs, "peak", 1300.0, 5.0, "clear", None)

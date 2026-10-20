@@ -164,8 +164,23 @@ def compute_user_match(
             if near is None:
                 unavailable.append(scene)
                 continue
-            signals.append(100.0 if near else 25.0)
-            if near:
+            # Zpětná vazba (živé použití, Brno/Špilberk) - "to vůbec
+            # není přírodní, když je to uprostřed Brna". `near_forest`/
+            # `near_water` samy o sobě neumí rozlišit "skutečně
+            # přírodní místo s kouskem lesa/vody hned vedle" od "hustě
+            # městské místo, co náhodou má v okruhu 1.5/2 km taky malý
+            # park/řeku" - obojí dostane `near_forest=True`/
+            # `near_water=True` stejně (viz NEAR_FOREST_KM/NEAR_WATER_KM,
+            # app/environment_context.py). `near_city` (reálný signál ze
+            # STEJNÉHO zdroje) dominantní městský charakter správně
+            # pozná - pokud je zároveň pravda, "les"/"voda" tam jsou jen
+            # vedlejší, ne definující - nepočítá se to jako shoda s
+            # "Natural"/"Water view" preferencí. "city" preference touhle
+            # podmínkou NENÍ ovlivněná (ta má near_city dávat jako
+            # pozitivní signál vždy).
+            effectively_near = bool(near) and not (scene in ("water", "forest") and near_city)
+            signals.append(100.0 if effectively_near else 25.0)
+            if effectively_near:
                 reasons.append(_SCENE_LABEL[scene])
         else:
             unavailable.append(scene)
